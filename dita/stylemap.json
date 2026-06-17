@@ -5,6 +5,12 @@
   "H4": { "type": "heading", "level": 4 },
   "H5": { "type": "heading", "level": 5 },
 
+  "Heading1": { "type": "heading", "level": 1 },
+  "Heading2": { "type": "heading", "level": 2 },
+  "Heading3": { "type": "heading", "level": 3 },
+  "Heading4": { "type": "heading", "level": 4 },
+  "Heading5": { "type": "heading", "level": 5 },
+
   "Heading 1": { "type": "heading", "level": 1 },
   "Heading 2": { "type": "heading", "level": 2 },
   "Heading 3": { "type": "heading", "level": 3 },
@@ -14,6 +20,7 @@
   "Normal": { "type": "p" },
   "Body": { "type": "p" },
   "Body Text": { "type": "p" },
+  "BodyText": { "type": "p" },
 
   "Note": { "type": "note" },
   "Warning": { "type": "note", "outputType": "warning" },
@@ -24,8 +31,39 @@
 
   "Bullet": { "type": "bullet" },
   "List Bullet": { "type": "bullet" },
+  "ListBullet": { "type": "bullet" },
+  "ListBullet2": { "type": "bullet" },
+  "ListBullet3": { "type": "bullet" },
+  "ListBullet4": { "type": "bullet" },
+  "ListBullet5": { "type": "bullet" },
   "Numbered": { "type": "numbered" },
   "List Number": { "type": "numbered" },
+  "ListNumber": { "type": "numbered" },
+  "ListNumber2": { "type": "numbered" },
+  "ListNumber3": { "type": "numbered" },
+  "ListNumber4": { "type": "numbered" },
+  "ListNumber5": { "type": "numbered" },
 
-  "Caption": { "type": "caption" }
+  "Caption": { "type": "caption" },
+  "CaptionFigure": { "type": "caption" },
+  "CaptionFigure2": { "type": "caption" },
+  "CaptionTable": { "type": "caption" },
+
+  "TableText": { "type": "p" },
+  "TableBullet": { "type": "bullet" },
+
+  "AppendixHead": { "type": "heading", "level": 1 },
+  "AppendixHead2": { "type": "heading", "level": 2 },
+  "AppendixHead3": { "type": "heading", "level": 3 },
+  "AppendixHead4": { "type": "heading", "level": 4 },
+
+  "Frontmatterhead1": { "type": "heading", "level": 1 },
+  "Frontmatterhead2": { "type": "heading", "level": 2 },
+  "Frontmatterhead3": { "type": "heading", "level": 3 },
+  "frontmattertext": { "type": "p" },
+
+  "Disclaimer": { "type": "note", "outputType": "other" },
+  "References": { "type": "p" },
+  "Bibliography": { "type": "p" },
+  "Term-Abbrev": { "type": "p" }
 }

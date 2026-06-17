@@ -23,6 +23,26 @@ These tools are client-agnostic. They work on any Word document from any organiz
 | `Expand-WordPackage.ps1` | Unpacks a Word file into a folder of XML files for hand editing. Creates a backup first. |
 | `Compress-WordPackage.ps1` | Repacks an unpacked folder back into a valid Word file. Validates the result before overwriting. |
 | `Reapply-Styles.ps1` | Strips run-level direct character formatting so paragraph styles render cleanly. Preserves italic, superscript/subscript, and OLE/MathType equations. |
+| `Set-DocTitle.ps1` | Sets `<dc:title>` in docProps/core.xml. Works for any title string in any Word document. |
+| `Set-PageLayout.ps1` | Sets page margins with mirror margins. Configurable via -InnerInches, -OuterInches, -TopInches, -BottomInches, -HeaderInches, -FooterInches. |
+| `Set-TableLook.ps1` | Normalizes `<w:tblLook>` to formal report defaults (Header Row + Repeat Header + Banding) and adds `<w:tblHeader/>` to first rows. |
+| `Set-ThemeColors.ps1` | Replaces the `<a:clrScheme>` in theme1.xml with a caller-supplied color scheme XML block. Validates all 12 theme slots are present. |
+| `Install-ThemeColors.ps1` | Installs a theme color scheme file into the user's Word Theme Colors folder so Design > Colors displays it by name. |
+| `Audit-StyleSet.ps1` | Generic style audit engine. Checks that caller-supplied required style ids exist in styles.xml. Returns non-zero on drift. JSON or table output. |
+
+### OoXml Module
+
+The `OoXml/` subdirectory is a PowerShell module for generic OOXML style and numbering manipulation. Client scripts import this module and pass their configuration data.
+
+```powershell
+Import-Module ./OoXml/OoXml.psd1
+```
+
+**Style functions**: `Edit-StyleBlock`, `Remove-StyleBlock`, `Get-AllStyleIdsByType`, `Set-StyleBasedOn`, `Set-StyleColor`, `Edit-RunRPrInStyle`, `Set-StyleRecommended`, `Set-StyleHidden`
+
+**Numbering functions**: `Get-HeadingAbstractNumIds`, `Set-NumberingSuffix`, `Sync-ListIndents`, `Set-BulletGlyph`
+
+**Scriptblock variables**: `$ListSingleSpacingEdit`, `$BodyTextSpacingEdit`, `$SuppressNumbering` (passed to `Edit-StyleBlock` as mutators)
 
 ## Workflows
 

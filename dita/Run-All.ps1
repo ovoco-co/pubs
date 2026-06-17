@@ -1,3 +1,23 @@
+<#
+.SYNOPSIS
+    Runs the full Word-to-DITA conversion pipeline.
+
+.DESCRIPTION
+    Orchestrates all four conversion scripts in sequence: content conversion,
+    numbering extraction, header/footer extraction, and table/image extraction.
+    Produces a complete DITA output directory with topic files, ditamap,
+    numbering metadata, header/footer data, and extracted assets.
+
+.PARAMETER InputDocx
+    Path to the source .docx file.
+
+.PARAMETER WorkingDir
+    Root output directory. Subdirectories (dita/, assets/) are created
+    automatically. Created if it does not exist.
+
+.EXAMPLE
+    .\Run-All.ps1 -InputDocx "chapter.docx" -WorkingDir "output"
+#>
 param(
     [Parameter(Mandatory = $true)]
     [string]$InputDocx,

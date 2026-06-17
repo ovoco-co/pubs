@@ -4,22 +4,18 @@
     canonical NIST NCSTAR / NWIRP entity palette.
 
 .DESCRIPTION
-    Opens a .docx, .dotx, .docm, or .dotm file, replaces the <a:clrScheme>
-    block inside word/theme/theme1.xml with the canonical palette
-    (Resolution Blue, Tawny, Shamrock Green, Claret, Picton Blue,
-    Mulberry), and writes the result back. Other parts of the theme
-    (font scheme, effect styles, object defaults) are preserved verbatim.
+    Thin wrapper around publishing/word/Set-ThemeColors.ps1 that supplies the
+    canonical NIST NCSTAR palette (Resolution Blue, Tawny, Shamrock Green,
+    Claret, Picton Blue, Mulberry).
 
     The canonical palette comes from NWIRP_2-3_Graphics_Recommendations.md.
     Once applied, figures and styles can reference theme slots by name
     (accent1 = Study/NIST, accent2 = Schools, etc.) instead of hardcoding
     hex values, so the colors cannot drift between chapter documents.
 
-    Resolution Blue is set as `#00257A` (the master-palette value from
-    the graphics doc, canonical). The variant `#02257A` that appears
+    Resolution Blue is set as #00257A (the master-palette value from
+    the graphics doc, canonical). The variant #02257A that appears
     elsewhere in NCSTAR styles is treated as a typo and is NOT preserved.
-
-    The original file is backed up to <name>.theme.bak before changes.
 
 .PARAMETER File
     Path to a single Word file. Either this or -Folder is required.
@@ -51,13 +47,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-Add-Type -AssemblyName System.IO.Compression
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-
-# ---------------------------------------------------------------------------
-# Canonical NIST color scheme. Replaces the existing <a:clrScheme> entirely.
-# ---------------------------------------------------------------------------
-
+# Canonical NIST NCSTAR color scheme
 $nistClrScheme = @'
 <a:clrScheme name="NIST NCSTAR">
     <a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>
@@ -75,7 +65,7 @@ $nistClrScheme = @'
 </a:clrScheme>
 '@
 
-$paletteSummary = @"
+Write-Host @"
 NIST NCSTAR theme palette:
   dk1       sys windowText (#000000)
   lt1       sys window (#FFFFFF)
@@ -89,101 +79,19 @@ NIST NCSTAR theme palette:
   accent6   #C15C94  Mulberry          - Additional category
   hlink     #0563C1  Hyperlink
   folHlink  #954F72  Followed Hyperlink
-"@
+"@ -ForegroundColor Cyan
 
-# ---------------------------------------------------------------------------
-# Build the file list
-# ---------------------------------------------------------------------------
+$genericScript = Join-Path (Split-Path $PSScriptRoot -Parent) 'word\Set-ThemeColors.ps1'
 
-$targets = @()
+$args_ = @{
+    ColorSchemeXml = $nistClrScheme
+    Force          = $Force
+}
+
 if ($PSCmdlet.ParameterSetName -eq 'File') {
-    if (-not (Test-Path -LiteralPath $File -PathType Leaf)) { throw "File not found: $File" }
-    $targets += (Resolve-Path -LiteralPath $File).ProviderPath
+    $args_.File = $File
 } else {
-    if (-not (Test-Path -LiteralPath $Folder -PathType Container)) { throw "Folder not found: $Folder" }
-    $folderResolved = (Resolve-Path -LiteralPath $Folder).ProviderPath
-    $targets = [System.IO.DirectoryInfo]::new($folderResolved).GetFiles() |
-        Where-Object { $_.Extension -match '^\.(docx|dotx|docm|dotm)$' } |
-        ForEach-Object { $_.FullName }
+    $args_.Folder = $Folder
 }
 
-if ($targets.Count -eq 0) {
-    throw "No supported Word files found."
-}
-
-Write-Host $paletteSummary -ForegroundColor Cyan
-Write-Host ""
-Write-Host "Applying to:" -ForegroundColor Cyan
-$targets | ForEach-Object { Write-Host "  $_" }
-Write-Host ""
-
-if (-not $Force) {
-    $reply = Read-Host "Proceed? (y/N)"
-    if ($reply -notmatch '^[yY]') { throw "Aborted." }
-}
-
-# ---------------------------------------------------------------------------
-# Process each file
-# ---------------------------------------------------------------------------
-
-foreach ($target in $targets) {
-    Write-Host "Processing $target..." -ForegroundColor Yellow
-
-    # Read theme1.xml from the package
-    $stream = [System.IO.File]::Open($target, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
-    try {
-        $zip = New-Object System.IO.Compression.ZipArchive($stream, [System.IO.Compression.ZipArchiveMode]::Read)
-        try {
-            $entry = $zip.GetEntry('word/theme/theme1.xml')
-            if (-not $entry) {
-                Write-Warning "  word/theme/theme1.xml not found. Skipping."
-                continue
-            }
-            $reader = New-Object System.IO.StreamReader($entry.Open())
-            try { $themeXml = $reader.ReadToEnd() } finally { $reader.Dispose() }
-        } finally { $zip.Dispose() }
-    } finally { $stream.Dispose() }
-
-    # Replace the <a:clrScheme>...</a:clrScheme> block
-    if ($themeXml -notmatch '<a:clrScheme[\s\S]*?</a:clrScheme>') {
-        Write-Warning "  Could not find <a:clrScheme>...</a:clrScheme> block. Skipping."
-        continue
-    }
-    $newThemeXml = [regex]::Replace($themeXml, '<a:clrScheme[\s\S]*?</a:clrScheme>', $nistClrScheme, 1)
-
-    # Write the new theme back into the package
-    $tempZip = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "theme-swap-$([guid]::NewGuid()).zip")
-
-    $srcStream = [System.IO.File]::OpenRead($target)
-    try {
-        $srcZip = New-Object System.IO.Compression.ZipArchive($srcStream, [System.IO.Compression.ZipArchiveMode]::Read)
-        try {
-            $outStream = [System.IO.File]::Create($tempZip)
-            try {
-                $outZip = New-Object System.IO.Compression.ZipArchive($outStream, [System.IO.Compression.ZipArchiveMode]::Create)
-                try {
-                    foreach ($e in $srcZip.Entries) {
-                        $newEntry = $outZip.CreateEntry($e.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
-                        if ($e.FullName -eq 'word/theme/theme1.xml') {
-                            $w = New-Object System.IO.StreamWriter($newEntry.Open(), [System.Text.Encoding]::UTF8)
-                            try { $w.Write($newThemeXml) } finally { $w.Dispose() }
-                        } else {
-                            $es = $e.Open()
-                            try {
-                                $ns = $newEntry.Open()
-                                try { $es.CopyTo($ns) } finally { $ns.Dispose() }
-                            } finally { $es.Dispose() }
-                        }
-                    }
-                } finally { $outZip.Dispose() }
-            } finally { $outStream.Dispose() }
-        } finally { $srcZip.Dispose() }
-    } finally { $srcStream.Dispose() }
-
-    # Atomic move
-    Move-Item -LiteralPath $tempZip -Destination $target -Force
-    Write-Host "  Theme replaced." -ForegroundColor Green
-}
-
-Write-Host ""
-Write-Host "Done. Open the files in Word and verify Design > Colors shows the NIST NCSTAR palette." -ForegroundColor Green
+& $genericScript @args_

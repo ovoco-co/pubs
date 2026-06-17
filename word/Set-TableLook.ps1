@@ -1,19 +1,12 @@
 <#
 .SYNOPSIS
-    Enforces the NIST NCSTAR / NWIRP table apply-defaults on every <w:tbl>
-    in a Word file: Header Row on, Total Row off, First Column off,
-    Last Column off, Banded Rows on, Banded Columns off. Also forces
-    "Repeat as header row at the top of each page" by setting <w:tblHeader/>
-    on the first row of every table.
+    Normalizes table style options (tblLook) and enables repeating header
+    rows on every table in a Word document.
 
 .DESCRIPTION
-    Word stores the per-table apply-defaults (the checkboxes under Table
-    Design > Table Style Options) in <w:tblLook .../> inside <w:tbl>/<w:tblPr>.
-    When the canonical NIST table styles (NIST-Data, HM-Cover, HM-Data) are
-    applied, Word inherits whatever tblLook the table already had, so older
-    tables can end up with First Column checked, banded rows off, etc.
-
-    This script normalizes tblLook on every table to the agreed defaults:
+    Word stores per-table style option checkboxes (Table Design > Table
+    Style Options) in w:tblLook inside w:tbl/w:tblPr. This script
+    normalizes every table to formal report standard defaults:
 
         Header Row     (firstRow)     = checked
         Total Row      (lastRow)      = unchecked
@@ -24,10 +17,12 @@
 
     Hex bitmask for the legacy w:val attribute is "0420" (firstRow + noVBand).
 
-    It also writes <w:tblHeader/> into every first row's <w:trPr> so the
-    header row repeats across page breaks.
+    Also writes w:tblHeader into every first row's w:trPr so the header
+    row repeats across page breaks.
 
-    Idempotent: re-running produces the same result.
+    Operates directly on the ZIP package via System.IO.Compression - no
+    Word installation required. Idempotent: re-running produces the same
+    result.
 
 .PARAMETER File
     Path to a single Word file.
@@ -39,7 +34,10 @@
     Skip the confirmation prompt.
 
 .EXAMPLE
-    .\Set-NISTTableLook.ps1 -Folder "\\blue\E\00-clients\nist-HM\Templates"
+    .\Set-TableLook.ps1 -Folder "C:\templates"
+
+.EXAMPLE
+    .\Set-TableLook.ps1 -File "Report.docx" -Force
 #>
 
 [CmdletBinding(DefaultParameterSetName='File')]

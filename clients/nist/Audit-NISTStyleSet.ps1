@@ -5,28 +5,17 @@
     Catches the "renamed style breaks the script silently" trap.
 
 .DESCRIPTION
+    Thin wrapper around publishing/word/Audit-StyleSet.ps1 that supplies the
+    48 required and 24 optional NIST NCSTAR/NWIRP style sets.
+
     Every script in this toolkit (Set-NISTStyleArchitecture, Build-NISTReport,
     Test-NISTFrontMatter, Set-NISTHeaderFooterContent, etc.) keys off
     specific style ids in word/styles.xml. If a template renames one of
-    those styles, the downstream script silently misses it: numbering
-    drifts, the validator under-reports, captions don't pick up the right
-    font.
-
-    This script parses styles.xml directly, lists every defined styleId,
-    and compares against:
-        - a REQUIRED set whose absence breaks at least one downstream script
-        - an EXPECTED set that is usually present and good to flag if absent
-
-    Each REQUIRED entry includes a "UsedBy" list naming which script(s)
-    depend on it, so a missing-style report points straight at what will
-    break next.
+    those styles, the downstream script silently misses it.
 
     Required and expected sets were built by reading the styles.xml of a
     conformant NCSTAR/NWIRP template (144 styles) and cross-referencing
-    with the toolkit scripts. They are intentionally permissive: only
-    style ids that are actively used in code or assembly are gated as
-    REQUIRED. Visual / authoring styles (Quote, BlockText, etc.) are not
-    enforced.
+    with the toolkit scripts.
 
     Exit codes:
         0 = clean (every required style present in every file)
@@ -74,16 +63,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.IO.Compression
-Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 # ---------------------------------------------------------------------------
-# Canonical sets
-# ---------------------------------------------------------------------------
-# Each entry: { Category, Type, UsedBy }
-#   Category - groups the report output
-#   Type     - paragraph | character | table | numbering
-#   UsedBy   - list of script filenames that key off this style id
+# Canonical NIST style sets
 # ---------------------------------------------------------------------------
 
 $requiredStyles = [ordered]@{
@@ -115,7 +97,7 @@ $requiredStyles = [ordered]@{
     'AppendixHead4'      = @{ Category='Appendix'; Type='paragraph'; UsedBy=@('Set-NISTStyleArchitecture.ps1') }
 
     # Body
-    'BodyText'           = @{ Category='Body'; Type='paragraph'; UsedBy=@('Set-NISTStyleArchitecture.ps1','Reapply-NISTStyles.ps1','Build-NWIRPBuildingBlocks.ps1') }
+    'BodyText'           = @{ Category='Body'; Type='paragraph'; UsedBy=@('Set-NISTStyleArchitecture.ps1','Reapply-Styles.ps1','Build-NWIRPBuildingBlocks.ps1') }
 
     # Captions
     'Caption'            = @{ Category='Captions'; Type='paragraph'; UsedBy=@('Set-NISTStyleArchitecture.ps1','Build-NWIRPBuildingBlocks.ps1') }
@@ -123,7 +105,7 @@ $requiredStyles = [ordered]@{
     'CaptionFigure2'     = @{ Category='Captions'; Type='paragraph'; UsedBy=@('Set-NISTStyleArchitecture.ps1') }
     'CaptionTable'       = @{ Category='Captions'; Type='paragraph'; UsedBy=@('Set-NISTStyleArchitecture.ps1') }
 
-    # Lists (the indent + glyph ladder the architecture script rewrites)
+    # Lists
     'ListBullet'         = @{ Category='Lists'; Type='paragraph'; UsedBy=@('Set-NISTStyleArchitecture.ps1') }
     'ListBullet2'        = @{ Category='Lists'; Type='paragraph'; UsedBy=@('Set-NISTStyleArchitecture.ps1') }
     'ListBullet3'        = @{ Category='Lists'; Type='paragraph'; UsedBy=@('Set-NISTStyleArchitecture.ps1') }
@@ -158,7 +140,7 @@ $requiredStyles = [ordered]@{
     'TableText'          = @{ Category='Tables'; Type='paragraph'; UsedBy=@('Set-NISTStyleArchitecture.ps1') }
     'TableandFigureFootnotes' = @{ Category='Tables'; Type='paragraph'; UsedBy=@('Build-NWIRPBuildingBlocks.ps1') }
 
-    # Numbering chain (chapter/section auto-numbering)
+    # Numbering chain
     'HMList'             = @{ Category='Numbering'; Type='numbering'; UsedBy=@('Set-NISTStyleArchitecture.ps1','Build-NISTReport.ps1') }
 
     # Architecture base
@@ -194,148 +176,24 @@ $optionalStyles = [ordered]@{
 }
 
 # ---------------------------------------------------------------------------
-# File list
+# Delegate to generic audit engine
 # ---------------------------------------------------------------------------
 
-$files = @()
+$genericScript = Join-Path (Split-Path $PSScriptRoot -Parent) 'word\Audit-StyleSet.ps1'
+
+$args_ = @{
+    RequiredStyles = $requiredStyles
+    OptionalStyles = $optionalStyles
+    ReportTitle    = 'NIST style set audit'
+    Filter         = $Filter
+    ShowOptional   = $ShowOptional
+    Json           = $Json
+}
+
 if ($PSCmdlet.ParameterSetName -eq 'File') {
-    if (-not (Test-Path -LiteralPath $File -PathType Leaf)) {
-        Write-Error "File not found: $File"; exit 2
-    }
-    $files += (Resolve-Path -LiteralPath $File).ProviderPath
+    $args_.File = $File
 } else {
-    if (-not (Test-Path -LiteralPath $Folder -PathType Container)) {
-        Write-Error "Folder not found: $Folder"; exit 2
-    }
-    $folderResolved = (Resolve-Path -LiteralPath $Folder).ProviderPath
-    $files = [System.IO.DirectoryInfo]::new($folderResolved).GetFiles($Filter) |
-        Where-Object { $_.Extension -imatch '^\.(docx|dotx|docm|dotm)$' } |
-        ForEach-Object { $_.FullName }
+    $args_.Folder = $Folder
 }
 
-if ($files.Count -eq 0) { Write-Error "No files to audit."; exit 2 }
-
-# ---------------------------------------------------------------------------
-# Audit each file
-# ---------------------------------------------------------------------------
-
-function Get-StyleIds {
-    param([string]$Path)
-    $stream = [System.IO.File]::Open($Path, 'Open', 'Read', 'Read')
-    try {
-        $zip = New-Object System.IO.Compression.ZipArchive($stream, 'Read')
-        try {
-            $entry = $zip.GetEntry('word/styles.xml')
-            if (-not $entry) { return @{} }
-            $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::UTF8)
-            try { $stylesXml = $reader.ReadToEnd() } finally { $reader.Dispose() }
-        } finally { $zip.Dispose() }
-    } finally { $stream.Dispose() }
-
-    # styleId -> type
-    $present = @{}
-    $matches = [regex]::Matches($stylesXml, '<w:style\s+w:type="(\w+)"[^>]*w:styleId="([^"]+)"')
-    foreach ($m in $matches) {
-        $present[$m.Groups[2].Value] = $m.Groups[1].Value
-    }
-    return $present
-}
-
-$reportFiles = New-Object System.Collections.ArrayList
-$anyRequiredMiss = $false
-
-foreach ($f in $files) {
-    $present = Get-StyleIds -Path $f
-    $missingRequired = @()
-    $typeMismatch    = @()
-    $missingOptional = @()
-
-    foreach ($k in $requiredStyles.Keys) {
-        if (-not $present.ContainsKey($k)) {
-            $missingRequired += [pscustomobject]@{
-                StyleId  = $k
-                Category = $requiredStyles[$k].Category
-                Type     = $requiredStyles[$k].Type
-                UsedBy   = $requiredStyles[$k].UsedBy -join ', '
-            }
-        } elseif ($present[$k] -ne $requiredStyles[$k].Type) {
-            $typeMismatch += [pscustomobject]@{
-                StyleId  = $k
-                Expected = $requiredStyles[$k].Type
-                Actual   = $present[$k]
-                Category = $requiredStyles[$k].Category
-                UsedBy   = $requiredStyles[$k].UsedBy -join ', '
-            }
-        }
-    }
-    foreach ($k in $optionalStyles.Keys) {
-        if (-not $present.ContainsKey($k)) {
-            $missingOptional += [pscustomobject]@{
-                StyleId  = $k
-                Category = $optionalStyles[$k].Category
-                Type     = $optionalStyles[$k].Type
-            }
-        }
-    }
-
-    if ($missingRequired.Count -gt 0 -or $typeMismatch.Count -gt 0) { $anyRequiredMiss = $true }
-
-    [void]$reportFiles.Add([pscustomobject]@{
-        File             = $f
-        TotalStyles      = $present.Count
-        MissingRequired  = $missingRequired
-        TypeMismatch     = $typeMismatch
-        MissingOptional  = $missingOptional
-    })
-}
-
-# ---------------------------------------------------------------------------
-# Render
-# ---------------------------------------------------------------------------
-
-if ($Json) {
-    [pscustomobject]@{
-        Clean = -not $anyRequiredMiss
-        Files = $reportFiles
-    } | ConvertTo-Json -Depth 6
-} else {
-    Write-Host ""
-    Write-Host "NIST style set audit" -ForegroundColor Cyan
-    Write-Host ""
-    foreach ($r in $reportFiles) {
-        $name = Split-Path -Leaf $r.File
-        Write-Host "  $name" -ForegroundColor White
-        Write-Host ("    Total styles defined: {0}" -f $r.TotalStyles) -ForegroundColor DarkGray
-        if ($r.MissingRequired.Count -eq 0 -and $r.TypeMismatch.Count -eq 0) {
-            Write-Host "    Required styles: all present" -ForegroundColor Green
-        } else {
-            if ($r.MissingRequired.Count -gt 0) {
-                Write-Host ("    MISSING required ({0}):" -f $r.MissingRequired.Count) -ForegroundColor Red
-                foreach ($m in $r.MissingRequired) {
-                    Write-Host ("      - {0,-26} [{1,-12}] {2}" -f $m.StyleId, $m.Category, "needed by: $($m.UsedBy)") -ForegroundColor Red
-                }
-            }
-            if ($r.TypeMismatch.Count -gt 0) {
-                Write-Host ("    TYPE MISMATCH ({0}):" -f $r.TypeMismatch.Count) -ForegroundColor Yellow
-                foreach ($m in $r.TypeMismatch) {
-                    Write-Host ("      - {0,-26} expected {1}, found {2}" -f $m.StyleId, $m.Expected, $m.Actual) -ForegroundColor Yellow
-                }
-            }
-        }
-        if ($ShowOptional -and $r.MissingOptional.Count -gt 0) {
-            Write-Host ("    Missing optional ({0}):" -f $r.MissingOptional.Count) -ForegroundColor DarkGray
-            foreach ($m in $r.MissingOptional) {
-                Write-Host ("      - {0,-26} [{1}]" -f $m.StyleId, $m.Category) -ForegroundColor DarkGray
-            }
-        }
-        Write-Host ""
-    }
-    if ($anyRequiredMiss) {
-        Write-Host "Drift: at least one file is missing a required style id." -ForegroundColor Red
-    } else {
-        Write-Host "Clean. Every audited file defines every required style id." -ForegroundColor Green
-    }
-    Write-Host ""
-}
-
-if ($anyRequiredMiss) { exit 1 } else { exit 0 }
+& $genericScript @args_

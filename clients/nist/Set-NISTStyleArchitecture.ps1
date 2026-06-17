@@ -78,6 +78,10 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
+# Import the generic OoXml module for style and numbering manipulation
+$ooXmlModule = Join-Path (Split-Path $PSScriptRoot -Parent) 'word\OoXml\OoXml.psd1'
+Import-Module $ooXmlModule -Force
+
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
@@ -287,27 +291,7 @@ $hmDataEdit = {
     return $b
 }
 
-# List Bullet / List Number family:
-#   - single line spacing (line=240 lineRule=auto)
-#   - spacing after = 240 twips (so the last item has a gap before the next paragraph)
-#   - contextualSpacing (suppress the after-spacing between items in the same list,
-#     so bullets stay tight together; the gap fires only after the LAST bullet)
-$listSingleSpacingEdit = {
-    param($block)
-    # Bullets inherit before/after/line/lineRule from xxbase. Strip any
-    # explicit <w:spacing/> override, then ensure <w:contextualSpacing/>
-    # is set so consecutive same-style bullets pack tight.
-    $b = [regex]::Replace($block, '<w:spacing\b[^/]*?/>', '')
-
-    if ($b -notmatch '<w:contextualSpacing\s*/>') {
-        if ($b -match '</w:pPr>') {
-            $b = [regex]::Replace($b, '</w:pPr>', '<w:contextualSpacing/></w:pPr>', 1)
-        } else {
-            $b = [regex]::Replace($b, '</w:style>', '<w:pPr><w:contextualSpacing/></w:pPr></w:style>', 1)
-        }
-    }
-    return $b
-}
+# $ListSingleSpacingEdit is provided by the OoXml module.
 
 # xxtable: 9pt (sz=18, szCs=18), 1pt before, 1pt after, line spacing 0.9 multiple.
 # Children that don't override inherit these values.
@@ -365,52 +349,7 @@ $tableTextSpacingEdit = {
 
 # Header: Source Sans Pro Light, 9pt (sz=18), no bold. (Color #00257A is
 # applied by the setColor pass.)
-# Apply font edits ONLY to the run-level rPr in a style block, never to the
-# paragraph mark formatting (the rPr nested inside pPr). The run-level rPr
-# governs the actual text; the pPr-internal rPr only formats the paragraph
-# mark glyph and ignoring it would still leave inherited bold visible.
-function Edit-RunRPrInStyle {
-    param([string]$Block, [string]$NewFont, [string]$SizeHalfPts)
-    # Split at </w:pPr> if present so we operate only on the suffix.
-    $pPrCloseIdx = $Block.IndexOf('</w:pPr>')
-    if ($pPrCloseIdx -ge 0) {
-        $cut    = $pPrCloseIdx + '</w:pPr>'.Length
-        $prefix = $Block.Substring(0, $cut)
-        $tail   = $Block.Substring($cut)
-    } else {
-        $prefix = ''
-        $tail   = $Block
-    }
-
-    # Strip bold toggles from tail (run-level rPr region only)
-    $tail = [regex]::Replace($tail, '<w:b\s*/>', '')
-    $tail = [regex]::Replace($tail, '<w:bCs\s*/>', '')
-    $tail = [regex]::Replace($tail, '<w:b\s+w:val="[^"]*"\s*/>', '')
-    $tail = [regex]::Replace($tail, '<w:bCs\s+w:val="[^"]*"\s*/>', '')
-
-    $rFontsAndBold = "<w:rFonts w:ascii=`"$NewFont`" w:hAnsi=`"$NewFont`" w:cs=`"$NewFont`"/><w:b w:val=`"0`"/><w:bCs w:val=`"0`"/>"
-    if ($tail -match '<w:rFonts\s+[^/]*?/>') {
-        $tail = [regex]::Replace($tail, '<w:rFonts\s+[^/]*?/>', $rFontsAndBold, 1)
-    } elseif ($tail -match '<w:rPr>') {
-        $tail = [regex]::Replace($tail, '<w:rPr>', "<w:rPr>$rFontsAndBold", 1)
-    } else {
-        $tail = [regex]::Replace($tail, '</w:style>', "<w:rPr>$rFontsAndBold</w:rPr></w:style>", 1)
-    }
-
-    if ($tail -match '<w:sz\s+w:val="[^"]*"\s*/>') {
-        $tail = [regex]::Replace($tail, '<w:sz\s+w:val="[^"]*"\s*/>', "<w:sz w:val=`"$SizeHalfPts`"/>", 1)
-    } elseif ($tail -match '<w:rPr>') {
-        $tail = [regex]::Replace($tail, '<w:rPr>', "<w:rPr><w:sz w:val=`"$SizeHalfPts`"/>", 1)
-    }
-    if ($tail -match '<w:szCs\s+w:val="[^"]*"\s*/>') {
-        $tail = [regex]::Replace($tail, '<w:szCs\s+w:val="[^"]*"\s*/>', "<w:szCs w:val=`"$SizeHalfPts`"/>", 1)
-    } elseif ($tail -match "<w:sz\s+w:val=`"$SizeHalfPts`"\s*/>") {
-        $tail = [regex]::Replace($tail, "(<w:sz\s+w:val=`"$SizeHalfPts`"\s*/>)", "`$1<w:szCs w:val=`"$SizeHalfPts`"/>", 1)
-    }
-
-    return $prefix + $tail
-}
-
+# Edit-RunRPrInStyle is provided by the OoXml module.
 $headerFontEdit = {
     param($block)
     return Edit-RunRPrInStyle -Block $block -NewFont 'Source Sans Pro Light' -SizeHalfPts '18'
@@ -454,12 +393,9 @@ $xxbaseSpacingEdit = {
     return [regex]::Replace($block, '</w:style>', "<w:pPr><w:spacing $newSpacing/></w:pPr></w:style>", 1)
 }
 
-# BodyText: strip any local spacing override so it inherits xxbase (4pt before,
-# 4pt after) cleanly.
-$bodyTextEdit = {
-    param($block)
-    return [regex]::Replace($block, '<w:spacing\b[^/]*?/>', '')
-}
+# $BodyTextSpacingEdit is provided by the OoXml module.
+# $bodyTextEdit is a NIST alias for it.
+$bodyTextEdit = $BodyTextSpacingEdit
 
 # Block-level mutations: Caption_Figure_2 (Source Sans Pro 10pt, no bold, light grey background,
 # light grey paragraph background). Resolution Blue shading is too dark to
@@ -625,75 +561,12 @@ if (-not $Force) {
 }
 
 # ---------------------------------------------------------------------------
-# Helpers (operate on the styles.xml string)
+# Helpers: provided by the OoXml module (Edit-StyleBlock, Remove-StyleBlock,
+# Get-AllStyleIdsByType, Set-StyleBasedOn, Set-StyleColor, Edit-RunRPrInStyle,
+# Set-StyleRecommended, Set-StyleHidden, Get-HeadingAbstractNumIds,
+# Set-NumberingSuffix, Sync-ListIndents, Set-BulletGlyph,
+# $ListSingleSpacingEdit, $BodyTextSpacingEdit, $SuppressNumbering)
 # ---------------------------------------------------------------------------
-
-function Edit-StyleBlock {
-    # Returns ($modifiedXml, $changed). Finds <w:style ... w:styleId="$Id" ...>...</w:style>
-    # and applies $Mutator to the block. Mutator returns the new block content.
-    param([string]$Xml, [string]$Id, [scriptblock]$Mutator)
-    $pattern = '(?si)<w:style\b([^>]*?\bw:styleId="' + [regex]::Escape($Id) + '"[^>]*?)>(.*?)</w:style>'
-    $rgx = [regex]::new($pattern)
-    $m = $rgx.Match($Xml)
-    if (-not $m.Success) { return ,$Xml, $false }
-    $newBlock = & $Mutator $m.Value $m.Groups[1].Value $m.Groups[2].Value
-    return $rgx.Replace($Xml, [System.Text.RegularExpressions.MatchEvaluator]{ param($mm) $newBlock }, 1), $true
-}
-
-function Remove-StyleBlock {
-    param([string]$Xml, [string]$Id)
-    $pattern = '(?si)<w:style\b[^>]*?\bw:styleId="' + [regex]::Escape($Id) + '"[^>]*?>.*?</w:style>\s*'
-    $rgx = [regex]::new($pattern)
-    if (-not $rgx.IsMatch($Xml)) { return ,$Xml, $false }
-    return $rgx.Replace($Xml, '', 1), $true
-}
-
-function Get-AllStyleIdsByType {
-    param([string]$Xml, [string]$Type)
-    $pattern = '<w:style\b[^>]*?\bw:type="' + [regex]::Escape($Type) + '"[^>]*?\bw:styleId="([^"]+)"'
-    $rgx = [regex]::new($pattern)
-    $ids = New-Object System.Collections.Generic.List[string]
-    foreach ($m in $rgx.Matches($Xml)) { [void]$ids.Add($m.Groups[1].Value) }
-    return $ids
-}
-
-function Set-BasedOn {
-    param([string]$Block, [string]$NewId)
-    if ($Block -match '<w:basedOn\s+w:val="[^"]*"\s*/>') {
-        return [regex]::Replace($Block, '<w:basedOn\s+w:val="[^"]*"\s*/>', "<w:basedOn w:val=`"$NewId`"/>")
-    }
-    # Insert <w:basedOn> right after the opening <w:style ...> tag (after any <w:name>)
-    # Standard order is: name, basedOn, next, link
-    if ($Block -match '<w:name\s+w:val="[^"]*"\s*/>') {
-        return [regex]::Replace($Block, '(<w:name\s+w:val="[^"]*"\s*/>)', "`$1<w:basedOn w:val=`"$NewId`"/>", 1)
-    }
-    # Fallback: insert after the opening tag
-    return [regex]::Replace($Block, '(<w:style\b[^>]*?>)', "`$1<w:basedOn w:val=`"$NewId`"/>", 1)
-}
-
-function Set-Color {
-    param([string]$Block, [string]$HexNoHash)
-    # Build the <w:color> element; attach w:themeColor if the hex maps to a NIST
-    # theme slot so the style follows the theme rather than hardcoding the hex.
-    $themeAttr = ''
-    if ($hexToThemeColor.ContainsKey($HexNoHash)) {
-        $themeAttr = " w:themeColor=`"$($hexToThemeColor[$HexNoHash])`""
-    }
-    $colorEl = "<w:color w:val=`"$HexNoHash`"$themeAttr/>"
-    # Find existing <w:rPr> in the style block; if none, insert one before </w:style>.
-    if ($Block -match '<w:rPr>(.*?)</w:rPr>') {
-        $rprInner = $Matches[1]
-        if ($rprInner -match '<w:color\s+[^/]*?/>') {
-            $newRprInner = [regex]::Replace($rprInner, '<w:color\s+[^/]*?/>', $colorEl)
-        } else {
-            $newRprInner = $rprInner + $colorEl
-        }
-        return [regex]::Replace($Block, '<w:rPr>(.*?)</w:rPr>', "<w:rPr>$newRprInner</w:rPr>", 1)
-    } else {
-        # Insert a fresh <w:rPr> before </w:style>
-        return [regex]::Replace($Block, '</w:style>', "<w:rPr>$colorEl</w:rPr></w:style>", 1)
-    }
-}
 
 # ---------------------------------------------------------------------------
 # Process each target
@@ -734,7 +607,7 @@ foreach ($target in $targets) {
     $rebaseHits = 0
     foreach ($id in $rebase.Keys) {
         $newBase = $rebase[$id]
-        $result = Edit-StyleBlock -Xml $xml -Id $id -Mutator { param($block, $attrs, $body) Set-BasedOn -Block $block -NewId $newBase }
+        $result = Edit-StyleBlock -Xml $xml -Id $id -Mutator { param($block, $attrs, $body) Set-StyleBasedOn -Block $block -NewId $newBase }
         $xml = $result[0]
         if ($result[1]) { $rebaseHits++ }
     }
@@ -744,7 +617,7 @@ foreach ($target in $targets) {
     $colorHits = 0
     foreach ($id in $setColor.Keys) {
         $hex = $setColor[$id]
-        $result = Edit-StyleBlock -Xml $xml -Id $id -Mutator { param($block, $attrs, $body) Set-Color -Block $block -HexNoHash $hex }
+        $result = Edit-StyleBlock -Xml $xml -Id $id -Mutator { param($block, $attrs, $body) Set-StyleColor -Block $block -HexNoHash $hex -HexToThemeMap $hexToThemeColor }
         $xml = $result[0]
         if ($result[1]) { $colorHits++ }
     }
@@ -764,23 +637,10 @@ foreach ($target in $targets) {
     # at the AppendixHead level; the rebased AppendixHead4 -> AppendixHead chain
     # inherits the suppression. Apply to every level so the chain works whether
     # or not the rebase pass succeeded.
-    $suppressNumbering = {
-        param($block)
-        $noNumPr = '<w:numPr><w:numId w:val="0"/></w:numPr>'
-        if ($block -match '(?s)<w:numPr>.*?</w:numPr>') {
-            return [regex]::Replace($block, '(?s)<w:numPr>.*?</w:numPr>', $noNumPr, 1)
-        }
-        if ($block -match '<w:pPr>') {
-            return [regex]::Replace($block, '<w:pPr>', "<w:pPr>$noNumPr", 1)
-        }
-        if ($block -match '<w:basedOn\s+w:val="[^"]*"\s*/>') {
-            return [regex]::Replace($block, '(<w:basedOn\s+w:val="[^"]*"\s*/>)', "`$1<w:pPr>$noNumPr</w:pPr>", 1)
-        }
-        return [regex]::Replace($block, '</w:style>', "<w:pPr>$noNumPr</w:pPr></w:style>", 1)
-    }
+    # $SuppressNumbering is provided by the OoXml module.
     foreach ($ahId in @('AppendixHead','AppendixHead2','AppendixHead3','AppendixHead4',
                         'Appendix_Head','Appendix_Head2','Appendix_Head3','Appendix_Head4')) {
-        $ah = Edit-StyleBlock -Xml $xml -Id $ahId -Mutator $suppressNumbering
+        $ah = Edit-StyleBlock -Xml $xml -Id $ahId -Mutator $SuppressNumbering
         $xml = $ah[0]
         if ($ah[1]) { Write-Host "  ${ahId}: numbering suppressed (numId=0)" -ForegroundColor DarkGray }
     }
@@ -932,7 +792,7 @@ foreach ($target in $targets) {
                  'ListParagraph')
     $listSingleHits = 0
     foreach ($id in $listIds) {
-        $r = Edit-StyleBlock -Xml $xml -Id $id -Mutator $listSingleSpacingEdit
+        $r = Edit-StyleBlock -Xml $xml -Id $id -Mutator $ListSingleSpacingEdit
         $xml = $r[0]
         if ($r[1]) { $listSingleHits++ }
     }
@@ -1035,71 +895,17 @@ foreach ($target in $targets) {
         else { $recList += $s }
     }
 
-    # Helper: set a style as recommended with given priority
-    function Set-Recommended {
-        param([string]$Xml, [string]$Id, [int]$Priority)
-        $pat = '(?s)<w:style\b[^>]*?\bw:styleId="' + [regex]::Escape($Id) + '"[^>]*?>(.*?)</w:style>'
-        $rg = [regex]::new($pat)
-        $mm = $rg.Match($Xml)
-        if (-not $mm.Success) { return $Xml }
-        $blk = $mm.Value
-        $blk = [regex]::Replace($blk, '<w:semiHidden\s*/>', '')
-        $blk = [regex]::Replace($blk, '<w:unhideWhenUsed\s*/>', '')
-        if ($blk -match '<w:uiPriority\s+w:val="[^"]*"\s*/>') {
-            $blk = [regex]::Replace($blk, '<w:uiPriority\s+w:val="[^"]*"\s*/>', "<w:uiPriority w:val=`"$Priority`"/>", 1)
-        } elseif ($blk -match '<w:basedOn\s+w:val="[^"]*"\s*/>') {
-            $blk = [regex]::Replace($blk, '(<w:basedOn\s+w:val="[^"]*"\s*/>)', "`$1<w:uiPriority w:val=`"$Priority`"/>", 1)
-        } elseif ($blk -match '<w:name\s+w:val="[^"]*"\s*/>') {
-            $blk = [regex]::Replace($blk, '(<w:name\s+w:val="[^"]*"\s*/>)', "`$1<w:uiPriority w:val=`"$Priority`"/>", 1)
-        }
-        if ($blk -notmatch '<w:qFormat\s*/>') {
-            if ($blk -match '<w:uiPriority\s+w:val="[^"]*"\s*/>') {
-                $blk = [regex]::Replace($blk, '(<w:uiPriority\s+w:val="[^"]*"\s*/>)', '$1<w:qFormat/>', 1)
-            }
-        }
-        return $rg.Replace($Xml, [System.Text.RegularExpressions.MatchEvaluator]{ param($x) $blk }, 1)
-    }
-
-    # Helper: set a style as hidden (semiHidden + unhideWhenUsed, drop qFormat,
-    # bump uiPriority to 99 so it sorts after recommended styles)
-    function Set-Hidden {
-        param([string]$Xml, [string]$Id)
-        $pat = '(?s)<w:style\b[^>]*?\bw:styleId="' + [regex]::Escape($Id) + '"[^>]*?>(.*?)</w:style>'
-        $rg = [regex]::new($pat)
-        $mm = $rg.Match($Xml)
-        if (-not $mm.Success) { return $Xml }
-        $blk = $mm.Value
-        $blk = [regex]::Replace($blk, '<w:qFormat\s*/>', '')
-        # Bump uiPriority to 99 so hidden styles sort after recommended ones
-        if ($blk -match '<w:uiPriority\s+w:val="[^"]*"\s*/>') {
-            $blk = [regex]::Replace($blk, '<w:uiPriority\s+w:val="[^"]*"\s*/>', '<w:uiPriority w:val="99"/>', 1)
-        } elseif ($blk -match '<w:basedOn\s+w:val="[^"]*"\s*/>') {
-            $blk = [regex]::Replace($blk, '(<w:basedOn\s+w:val="[^"]*"\s*/>)', '$1<w:uiPriority w:val="99"/>', 1)
-        } elseif ($blk -match '<w:name\s+w:val="[^"]*"\s*/>') {
-            $blk = [regex]::Replace($blk, '(<w:name\s+w:val="[^"]*"\s*/>)', '$1<w:uiPriority w:val="99"/>', 1)
-        }
-        if ($blk -notmatch '<w:semiHidden\s*/>') {
-            if ($blk -match '<w:uiPriority\s+w:val="[^"]*"\s*/>') {
-                $blk = [regex]::Replace($blk, '(<w:uiPriority\s+w:val="[^"]*"\s*/>)', '$1<w:semiHidden/>', 1)
-            }
-        }
-        if ($blk -notmatch '<w:unhideWhenUsed\s*/>') {
-            if ($blk -match '<w:semiHidden\s*/>') {
-                $blk = [regex]::Replace($blk, '(<w:semiHidden\s*/>)', '$1<w:unhideWhenUsed/>', 1)
-            }
-        }
-        return $rg.Replace($Xml, [System.Text.RegularExpressions.MatchEvaluator]{ param($x) $blk }, 1)
-    }
+    # Set-StyleRecommended and Set-StyleHidden are provided by the OoXml module.
 
     # Sort the recommend list alphabetical by Name and assign sequential uiPriority
     $sortedRec = $recList | Sort-Object Name
     $priority = 10
     foreach ($s in $sortedRec) {
-        $xml = Set-Recommended -Xml $xml -Id $s.Id -Priority $priority
+        $xml = Set-StyleRecommended -Xml $xml -Id $s.Id -Priority $priority
         $priority++
     }
     foreach ($id in $hideList) {
-        $xml = Set-Hidden -Xml $xml -Id $id
+        $xml = Set-StyleHidden -Xml $xml -Id $id
     }
     Write-Host "  Recommended: $($sortedRec.Count) style(s) alphabetized; $($hideList.Count) hidden" -ForegroundColor DarkGray
 
@@ -1114,149 +920,17 @@ foreach ($target in $targets) {
     }
     Write-Host "  Deleted (table bloat): $tableDeleteHits style(s)" -ForegroundColor DarkGray
 
-    # Numbering pass: suff is context-aware.
-    #   Heading numbering ("1.1.", "1.1.1.") uses <w:suff w:val="space"/> so the
-    #   number and title sit tight together ("1.1. Section Title"). Default tab
-    #   suffix jumps to the next default tab stop and creates a visible gap.
-    #   Bullet and decimal-list numbering uses <w:suff w:val="tab"/> so the tab
-    #   character takes the cursor from the bullet glyph out to the paragraph's
-    #   left indent. That keeps the wrapped second line of a bullet aligned with
-    #   the first line of text (instead of with the bullet itself).
+    # Numbering pass: uses OoXml module functions
     if ($numberingXml) {
-        # Build the set of abstractNumIds referenced by Heading1-9 styles, plus
-        # any abstractNums that delegate to those via <w:numStyleLink>.
-        $headingAbstractNumIds = [System.Collections.Generic.HashSet[string]]::new()
-        foreach ($hsid in @('Heading1','Heading2','Heading3','Heading4','Heading5','Heading6','Heading7','Heading8','Heading9')) {
-            $sp = '(?s)<w:style\b[^>]*?\bw:styleId="' + [regex]::Escape($hsid) + '"[^>]*?>.*?</w:style>'
-            $sm = [regex]::Match($xml, $sp)
-            if (-not $sm.Success) { continue }
-            $nidm = [regex]::Match($sm.Value, '<w:numId\s+w:val="(\d+)"\s*/>')
-            if (-not $nidm.Success) { continue }
-            $nid = $nidm.Groups[1].Value
-            $am = [regex]::Match($numberingXml, '<w:num w:numId="' + [regex]::Escape($nid) + '"[^>]*>\s*<w:abstractNumId w:val="(\d+)"', 'Singleline')
-            if ($am.Success) { [void]$headingAbstractNumIds.Add($am.Groups[1].Value) }
-        }
-        # Follow <w:numStyleLink> chains. A Heading abstractNum often just delegates
-        # to a named numbering style (e.g. HMList); the actual lvl definitions live
-        # in the linked style's underlying abstractNum.
-        $followLinks = [System.Collections.Generic.HashSet[string]]::new($headingAbstractNumIds)
-        foreach ($absid in $headingAbstractNumIds) {
-            $ap = '(?s)<w:abstractNum [^>]*abstractNumId="' + [regex]::Escape($absid) + '"[^>]*>.*?</w:abstractNum>'
-            $abm = [regex]::Match($numberingXml, $ap)
-            if (-not $abm.Success) { continue }
-            $nslMatch = [regex]::Match($abm.Value, '<w:numStyleLink w:val="([^"]+)"')
-            if (-not $nslMatch.Success) { continue }
-            $linkedStyleId = $nslMatch.Groups[1].Value
-            $linkedStyle = [regex]::Match($xml, '(?s)<w:style\b[^>]*?\bw:styleId="' + [regex]::Escape($linkedStyleId) + '"[^>]*?>.*?</w:style>')
-            if (-not $linkedStyle.Success) { continue }
-            $linkedNumIdMatch = [regex]::Match($linkedStyle.Value, '<w:numId\s+w:val="(\d+)"\s*/>')
-            if (-not $linkedNumIdMatch.Success) { continue }
-            $linkedNumId = $linkedNumIdMatch.Groups[1].Value
-            $linkedAbsMatch = [regex]::Match($numberingXml, '<w:num w:numId="' + [regex]::Escape($linkedNumId) + '"[^>]*>\s*<w:abstractNumId w:val="(\d+)"', 'Singleline')
-            if ($linkedAbsMatch.Success) { [void]$followLinks.Add($linkedAbsMatch.Groups[1].Value) }
-        }
-        $headingAbstractNumIds = $followLinks
-
-        # Iterate every abstractNum; choose suff based on whether it's a heading-linked one.
-        $abstractNumEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
-            param($am)
-            $whole = $am.Value
-            $absid = $am.Groups[1].Value
-            $useSuff = if ($headingAbstractNumIds.Contains($absid)) { 'space' } else { 'tab' }
-            $newSuff = "<w:suff w:val=`"$useSuff`"/>"
-            $lvlEval = [System.Text.RegularExpressions.MatchEvaluator]{
-                param($lm)
-                $lvlBlock = $lm.Value
-                $inner    = $lm.Groups[1].Value
-                if ($inner -notmatch '<w:lvlText\b') { return $lvlBlock }
-                if ($lvlBlock -match '<w:suff\s+w:val="[^"]*"\s*/>') {
-                    return [regex]::Replace($lvlBlock, '<w:suff\s+w:val="[^"]*"\s*/>', $newSuff, 1)
-                }
-                if ($lvlBlock -match '<w:numFmt\s+[^/]*/>') {
-                    return [regex]::Replace($lvlBlock, '(<w:numFmt\s+[^/]*/>)', "`$1$newSuff", 1)
-                }
-                if ($lvlBlock -match '<w:start\s+[^/]*/>') {
-                    return [regex]::Replace($lvlBlock, '(<w:start\s+[^/]*/>)', "`$1$newSuff", 1)
-                }
-                return [regex]::Replace($lvlBlock, '(<w:lvl\b[^>]*>)', "`$1$newSuff", 1)
-            }.GetNewClosure()
-            return [System.Text.RegularExpressions.Regex]::Replace($whole, '(?s)<w:lvl\b[^>]*>(.*?)</w:lvl>', $lvlEval)
-        }
-        $numberingXml = [System.Text.RegularExpressions.Regex]::Replace(
-            $numberingXml,
-            '(?s)<w:abstractNum [^>]*abstractNumId="(\d+)"[^>]*>.*?</w:abstractNum>',
-            $abstractNumEvaluator)
+        $headingAbstractNumIds = Get-HeadingAbstractNumIds -StylesXml $xml -NumberingXml $numberingXml
+        $numberingXml = Set-NumberingSuffix -NumberingXml $numberingXml -HeadingAbstractNumIds $headingAbstractNumIds
         Write-Host "  numbering.xml: suff=space on heading numbering, suff=tab on list numbering" -ForegroundColor DarkGray
 
-        # Propagate the script's list indents into the underlying abstractNums.
-        # Each ListBulletN / ListNumberN style references a numId; the numId
-        # resolves to an abstractNumId; the abstractNum's ilvl=0 carries the
-        # actual rendered indent. Word can use either the style's <w:ind> or
-        # the abstractNum's <w:ind>, so they need to agree.
-        $listIndentHits = 0
-        foreach ($lstId in $listIndents.Keys) {
-            # Skip styles that don't carry a numPr (List, ListContinue, ListParagraph)
-            $stylePattern = '(?s)<w:style\b[^>]*?\bw:styleId="' + [regex]::Escape($lstId) + '"[^>]*?>.*?</w:style>'
-            $sm = [regex]::Match($xml, $stylePattern)
-            if (-not $sm.Success) { continue }
-            $numIdMatch = [regex]::Match($sm.Value, '<w:numId\s+w:val="(\d+)"\s*/>')
-            if (-not $numIdMatch.Success) { continue }
-            $nid = $numIdMatch.Groups[1].Value
-            $left = $listIndents[$lstId].Left
-            $hang = $listIndents[$lstId].Hanging
-            if ($hang -le 0) { continue }  # only act on hanging-bullet styles, not flat List family
-            # numId -> abstractNumId
-            $am = [regex]::Match($numberingXml, '<w:num w:numId="' + [regex]::Escape($nid) + '"[^>]*>\s*<w:abstractNumId w:val="(\d+)"', 'Singleline')
-            if (-not $am.Success) { continue }
-            $absid = $am.Groups[1].Value
-            # Locate that abstractNum block
-            $abnPattern = '(?s)<w:abstractNum [^>]*abstractNumId="' + [regex]::Escape($absid) + '"[^>]*>.*?</w:abstractNum>'
-            $abMatch = [regex]::Match($numberingXml, $abnPattern)
-            if (-not $abMatch.Success) { continue }
-            $abBlock = $abMatch.Value
-            # Rewrite <w:ind> in <w:lvl w:ilvl="0">. Most legacy List Bullet/Number
-            # ladders are single-level (one bullet style per numId) — ilvl=0 is the
-            # only level that matters. If higher ilvls exist they're cosmetic.
-            # Also apply $listBulletOverrides if this style is in the override map.
-            $newInd = "<w:ind w:left=`"$left`" w:hanging=`"$hang`"/>"
-            $bulletOverride = $listBulletOverrides[$lstId]
-            $lvlEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
-                param($m)
-                $head = $m.Groups[1].Value; $body = $m.Groups[2].Value; $tail = $m.Groups[3].Value
-                if ($body -match '<w:ind\s+[^/]*?/>') {
-                    $body = [regex]::Replace($body, '<w:ind\s+[^/]*?/>', $newInd, 1)
-                } elseif ($body -match '<w:pPr\b[^>]*>') {
-                    $body = [regex]::Replace($body, '(<w:pPr\b[^>]*>)', "`$1$newInd", 1)
-                } elseif ($body -match '<w:pPr\s*/>') {
-                    $body = [regex]::Replace($body, '<w:pPr\s*/>', "<w:pPr>$newInd</w:pPr>", 1)
-                } else {
-                    $body = $body + "<w:pPr>$newInd</w:pPr>"
-                }
-                if ($bulletOverride) {
-                    $newLvlText = "<w:lvlText w:val=`"$($bulletOverride.LvlText)`"/>"
-                    if ($body -match '<w:lvlText\s+[^/]*?/>') {
-                        $body = [regex]::Replace($body, '<w:lvlText\s+[^/]*?/>', $newLvlText, 1)
-                    }
-                    $newRFonts = "<w:rFonts w:ascii=`"$($bulletOverride.Font)`" w:hAnsi=`"$($bulletOverride.Font)`" w:cs=`"$($bulletOverride.Font)`" w:hint=`"default`"/>"
-                    if ($body -match '<w:rPr\b[^>]*>.*?<w:rFonts\s+[^/]*?/>.*?</w:rPr>') {
-                        $body = [regex]::Replace($body, '<w:rFonts\s+[^/]*?/>', $newRFonts, 1)
-                    } elseif ($body -match '<w:rPr\b[^>]*>') {
-                        $body = [regex]::Replace($body, '(<w:rPr\b[^>]*>)', "`$1$newRFonts", 1)
-                    } else {
-                        $body = $body + "<w:rPr>$newRFonts</w:rPr>"
-                    }
-                }
-                return $head + $body + $tail
-            }.GetNewClosure()
-            $newAb = [System.Text.RegularExpressions.Regex]::Replace(
-                $abBlock,
-                '(?s)(<w:lvl w:ilvl="0"[^>]*>)(.*?)(</w:lvl>)',
-                $lvlEvaluator,
-                1)
-            $numberingXml = $numberingXml.Substring(0, $abMatch.Index) + $newAb + $numberingXml.Substring($abMatch.Index + $abMatch.Length)
-            $listIndentHits++
-        }
-        Write-Host "  numbering.xml: propagated list indents into $listIndentHits abstractNum(s)" -ForegroundColor DarkGray
+        $numberingXml = Sync-ListIndents -NumberingXml $numberingXml -StylesXml $xml -IndentMap $listIndents
+        Write-Host "  numbering.xml: propagated list indents into abstractNums" -ForegroundColor DarkGray
+
+        $numberingXml = Set-BulletGlyph -NumberingXml $numberingXml -StylesXml $xml -OverrideMap $listBulletOverrides
+        Write-Host "  numbering.xml: bullet glyphs overridden" -ForegroundColor DarkGray
     }
 
     # Write back

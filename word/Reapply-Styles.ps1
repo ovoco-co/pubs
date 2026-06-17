@@ -50,10 +50,10 @@
     Skip the confirmation prompt.
 
 .EXAMPLE
-    .\Reapply-NISTStyles.ps1 -File "Chapter-05.docx"
+    .\Reapply-Styles.ps1 -File "Chapter-05.docx"
 
 .EXAMPLE
-    .\Reapply-NISTStyles.ps1 -Folder "C:\HM\NCSTAR-4-1"
+    .\Reapply-Styles.ps1 -Folder "C:\chapters"
 #>
 
 [CmdletBinding(DefaultParameterSetName='File')]
@@ -88,7 +88,7 @@ if ($PSCmdlet.ParameterSetName -eq 'File') {
 if ($targets.Count -eq 0) { throw "No supported Word files found." }
 
 # -------- Confirm --------
-Write-Host "Reapply NIST Styles" -ForegroundColor Cyan
+Write-Host "Reapply Styles" -ForegroundColor Cyan
 Write-Host "  Strips run-level character formatting from document, headers, footers, foot/endnotes." -ForegroundColor Cyan
 Write-Host "  Preserves: italic, superscript/subscript, MathType and OLE-object runs." -ForegroundColor Cyan
 Write-Host "  Targets:" -ForegroundColor Cyan

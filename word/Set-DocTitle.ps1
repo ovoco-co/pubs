@@ -1,9 +1,16 @@
 <#
 .SYNOPSIS
-    Sets the document title metadata (<dc:title> in docProps/core.xml) on
-    a Word file. The title is what Word's File > Info > Properties >
-    Title field shows, and what the { TITLE } field code in a header or
-    footer pulls.
+    Sets the document title metadata (dc:title in docProps/core.xml) on
+    a Word file or all Word files in a folder.
+
+.DESCRIPTION
+    Updates the dc:title element inside the docProps/core.xml part of a
+    Word package (.docx/.dotx/.docm/.dotm). This is the title shown in
+    Word's File > Info > Properties > Title field and pulled by the
+    { TITLE } field code in headers or footers.
+
+    Operates directly on the ZIP package via System.IO.Compression - no
+    Word installation required.
 
 .PARAMETER File
     Path to a single Word file. Either this or -Folder is required.
@@ -18,10 +25,10 @@
     Skip the confirmation prompt.
 
 .EXAMPLE
-    .\Set-NISTDocTitle.ps1 -File "HM-NWIRP-Template.dotx" -Title "NIST NWIRP 2-3, Hurricane Maria Investigation"
+    .\Set-DocTitle.ps1 -File "Report-Template.dotx" -Title "Quarterly Status Report"
 
 .EXAMPLE
-    .\Set-NISTDocTitle.ps1 -Folder "C:\templates" -Title "NIST NCSTAR 4, Hurricane Maria Investigation"
+    .\Set-DocTitle.ps1 -Folder "C:\templates" -Title "Annual Investigation Report"
 #>
 
 [CmdletBinding(DefaultParameterSetName='File')]

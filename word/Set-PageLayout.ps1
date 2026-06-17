@@ -1,25 +1,20 @@
 <#
 .SYNOPSIS
-    Applies NIST NCSTAR page-layout settings to every <w:pgMar> in
-    word/document.xml: body margins (mirror-aware) plus header/footer
-    distance from page edge.
+    Sets page margins and header/footer distance on every section in a
+    Word document.
 
 .DESCRIPTION
-    NIST NCSTAR convention (per comment 2 review):
-      - Outer edge of page: 0.75 inch
-      - Binding side of page: 1.25 inch (so left+right = 2", body width = 6.5")
-      - Top of page: 1.0 inch
-      - Bottom of page: 1.0 inch
-      - Header distance from top: 0.3 inch
-      - Footer distance from bottom: 0.3 inch
+    Updates every w:pgMar element (one per section) in word/document.xml
+    with the specified margin values. Supports mirror-margin layouts where
+    w:left maps to the inner (binding) side and w:right to the outer side.
 
-    With <w:mirrorMargins/> enabled (set by Set-NISTHeaderFooterContent.ps1),
-    OOXML attribute w:left maps to "inner" (binding side) and w:right to
-    "outer". Word swaps them automatically on even pages so the wider
-    margin always sits on the binding side.
+    Default values are 1.0" for all body margins and 0.3" for header and
+    footer distance - a common formal report layout. Override any value
+    via parameters.
 
-    Updates every <w:pgMar> element (one per section) in word/document.xml.
-    Idempotent: re-running with the same values produces the same result.
+    Operates directly on the ZIP package via System.IO.Compression - no
+    Word installation required. Idempotent: re-running with the same
+    values produces the same result.
 
 .PARAMETER File
     Path to a single Word file. Either this or -Folder is required.
@@ -50,10 +45,10 @@
     Skip prompts.
 
 .EXAMPLE
-    .\Set-NISTPageLayout.ps1 -Folder "\\blue\E\00-clients\nist-HM\Templates"
+    .\Set-PageLayout.ps1 -Folder "C:\templates"
 
 .EXAMPLE
-    .\Set-NISTPageLayout.ps1 -File "C:\templates\HM-NWIRP-Template.dotx" -InnerInches 1.5
+    .\Set-PageLayout.ps1 -File "Report-Template.dotx" -InnerInches 1.5 -OuterInches 0.75
 #>
 
 [CmdletBinding(DefaultParameterSetName='File')]
@@ -204,4 +199,4 @@ foreach ($target in $targets) {
 
 Write-Host ""
 Write-Host "Done. Open in Word and verify under Layout > Margins > Custom Margins." -ForegroundColor Green
-Write-Host "Note: mirror margins are enabled by Set-NISTHeaderFooterContent.ps1, not this script." -ForegroundColor Cyan
+Write-Host "Note: mirror margins are enabled separately (e.g., via a header/footer content script), not this script." -ForegroundColor Cyan

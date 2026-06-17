@@ -201,7 +201,7 @@ Write-Host ""
 # ---------------------------------------------------------------------------
 
 if (-not $SkipStyleAudit) {
-    $auditScript = Join-Path $PSScriptRoot 'Audit-NISTStyleSet.ps1'
+    $auditScript = Join-Path (Split-Path $PSScriptRoot -Parent) 'Audit-NISTStyleSet.ps1'
     if (Test-Path -LiteralPath $auditScript) {
         Write-Host "Pre-assembly style audit..." -ForegroundColor Yellow
         $auditFailed = $false
@@ -237,7 +237,7 @@ if (-not $SkipStyleAudit) {
         }
         Write-Host ""
     } else {
-        Write-Warning "Audit-NISTStyleSet.ps1 not found next to Build-NISTReport.ps1; skipping pre-assembly audit."
+        throw "Audit-NISTStyleSet.ps1 not found at expected location: $auditScript. Verify the file exists in the nist/ parent directory."
     }
 }
 
