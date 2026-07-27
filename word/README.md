@@ -6,6 +6,43 @@ These tools are client-agnostic. They work on any Word document from any organiz
 
 ## Scripts
 
+Copy the scripts from WSL into the folder holding the documents, then run them in place against that folder.
+
+```powershell
+# 1. Copy the /word scripts from WSL into the document folder
+$docs = "$env:USERPROFILE\Documents\260726"
+Copy-Item \\wsl$\Ubuntu-24.04\home\artist\ovoco\tools\publishing\word\*.ps1 "$docs\" -Force
+
+# 2. cd into that folder so .\ resolves
+cd "$docs\"
+
+# 3. Run the scripts against the folder
+.\Set-PageLayout.ps1 -Folder $docs -InnerInches 1.25 -OuterInches 0.75
+.\Set-TableLook.ps1  -Folder $docs
+.\Set-DocTitle.ps1   -Folder $docs          # no -Title, so PowerShell prompts for it
+.\Reapply-Styles.ps1 -Folder $docs          # cleanup: run after authors hand a document back
+
+# Theme colors (needs the color scheme XML passed in)
+.\Set-ThemeColors.ps1 -Folder $docs -ColorSchemeXml "<a:clrScheme>...</a:clrScheme>" -Force
+```
+
+**Entering the title.** `Set-DocTitle.ps1` declares `-Title` as a mandatory parameter. Leave it off and PowerShell pauses to ask for it in the console:
+
+```
+cmdlet Set-DocTitle.ps1 at command pipeline position 1
+Supply values for the following parameters:
+Title:
+```
+
+Type the title, press Enter, and it applies to every `.docx` in the folder. For a per-file title, use `-File "$docs\Chapter-00.docx"` instead of `-Folder`.
+
+Notes:
+
+- Each script lists its targets and asks `Proceed? (y/N)` first. Type `y`, or add `-Force` to skip the prompt.
+- Swap `-Folder` for `-File "one.docx"` to test on a single file first.
+- `Set-PageLayout.ps1` defaults to 1.0" margins all around; pass `-InnerInches`/`-OuterInches` for a mirror layout.
+- The full NIST template build (theme palette, style architecture, headers/footers) uses the client scripts in `../clients/nist/` - those steps have no generic `word/` equivalent. See `../clients/nist/README.md` for that six-step pipeline.
+
 ### Inspection (read-only)
 
 | Script | What it does |

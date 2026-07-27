@@ -179,7 +179,7 @@ $optionalStyles = [ordered]@{
 # Delegate to generic audit engine
 # ---------------------------------------------------------------------------
 
-$genericScript = Join-Path (Split-Path $PSScriptRoot -Parent) 'word\Audit-StyleSet.ps1'
+$genericScript = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'word\Audit-StyleSet.ps1'
 
 $args_ = @{
     RequiredStyles = $requiredStyles

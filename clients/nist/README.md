@@ -10,9 +10,12 @@ Order matters. Run in this sequence:
 
 1. `Set-NISTTheme.ps1` - installs the Resolution Blue color palette so styles can reference theme slots
 2. `Set-NISTStyleArchitecture.ps1` - rebases styles onto the `xx*` family, deletes junk styles, applies theme-aligned colors, sets canonical bullet glyphs
-3. `../../word/Set-PageLayout.ps1` - sets page margins (generic, moved from this directory)
-4. `../../word/Set-DocTitle.ps1` - sets document Title metadata (generic, moved from this directory)
-5. `Set-NISTHeaderFooterContent.ps1` - installs even/odd headers and footers with STYLEREF and TITLE+PAGE fields
+3. `../../word/Set-PageLayout.ps1` - sets page margins (generic; pass NIST margins as parameters)
+4. `../../word/Set-TableLook.ps1` - normalizes table looks to Header Row + Repeat Header + Banding
+5. `../../word/Set-DocTitle.ps1` - sets document Title metadata (generic, moved from this directory)
+6. `Set-NISTHeaderFooterContent.ps1` - installs even/odd headers and footers with STYLEREF and TITLE+PAGE fields
+
+Step 1 must run before step 2: the styles reference the theme slots the palette creates.
 
 ## Scripts
 
@@ -41,18 +44,38 @@ These scripts were previously in this directory but are now generic tools:
 | `Set-NISTPageLayout.ps1` | `../../word/Set-PageLayout.ps1` | Parameterized margins, no NIST defaults |
 | `Set-NISTTableLook.ps1` | `../../word/Set-TableLook.ps1` | Standard formal report defaults |
 
-## Example: Apply template architecture to a chapter folder
+## Workflow: apply the NIST template to a chapter folder
+
+Run the scripts in place, from their repo location. The `Set-NIST*` wrappers find their
+generic engine in `../../word/` by walking up from their own location, so do NOT copy them
+into the document folder - that breaks the delegation. Point `-Folder` at wherever the
+`.docx` files live (a local Windows folder is fine).
+
+The `&` call operator runs each script from its full path without changing directory, so
+`$PSScriptRoot` still resolves correctly.
 
 ```powershell
-$dir   = "C:\HM\NCSTAR-4-1"
-$title = "NIST NCSTAR 4-1, Hurricane Maria Investigation"
+# Script locations (WSL path from Windows; adjust the distro name if yours differs)
+$nist = "\\wsl$\Ubuntu-24.04\home\artist\ovoco\tools\publishing\clients\nist"
+$word = "\\wsl$\Ubuntu-24.04\home\artist\ovoco\tools\publishing\word"
 
-Set-NISTTheme.ps1 -Folder $dir
-Set-NISTStyleArchitecture.ps1 -Folder $dir
-..\..\word\Set-PageLayout.ps1 -Folder $dir
-..\..\word\Set-DocTitle.ps1 -Folder $dir -Title $title
-Set-NISTHeaderFooterContent.ps1 -Folder $dir
+# Folder holding the chapter .docx files
+$docs = "$env:USERPROFILE\Documents\260726"
+
+& "$nist\Set-NISTTheme.ps1"               -Folder $docs
+& "$nist\Set-NISTStyleArchitecture.ps1"   -Folder $docs
+& "$word\Set-PageLayout.ps1"              -Folder $docs -InnerInches 1.25 -OuterInches 0.75
+& "$word\Set-TableLook.ps1"               -Folder $docs
+& "$word\Set-DocTitle.ps1"                -Folder $docs   # no -Title, so PowerShell prompts
+& "$nist\Set-NISTHeaderFooterContent.ps1" -Folder $docs
 ```
+
+Notes:
+
+- **Title prompt.** `Set-DocTitle.ps1` declares `-Title` mandatory. Leave it off and PowerShell pauses to ask (`Title:`); type the report title (for example `NIST NCSTAR 4-3, Hurricane Maria Investigation`) and it applies to every file in the folder. Pass `-Title "..."` to skip the prompt, or `-File "$docs\Chapter-00.docx"` for a per-file title.
+- **NIST margins.** `Set-PageLayout.ps1` defaults to 1.0" all around; the `-InnerInches 1.25 -OuterInches 0.75` above are the NIST mirror-margin values.
+- **Confirmation.** Each script lists its targets and asks `Proceed? (y/N)`. Add `-Force` to any of them to skip it.
+- `Set-TableLook.ps1` is included here because the NIST template repeats table header rows; `Reapply-Styles.ps1` (`../../word/`) is a separate post-authoring cleanup step, not part of this build.
 
 ## Adapting for a new client
 
