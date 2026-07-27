@@ -111,6 +111,35 @@ Audit-WordTheme.ps1 -File "master.dotx"
 # 4. Repack and verify
 ```
 
+## Word Wildcard Find and Replace
+
+Text fixes done in Word itself (not at the OOXML layer). In Find and Replace
+(`Ctrl+H`), click **More** and check **Use wildcards**, then use these patterns.
+
+### Space between a number and the percent sign
+
+Inserts a space where a digit sits directly against `%`.
+
+| Field | Value |
+|-------|-------|
+| Find what | `([0-9])%` |
+| Replace with (regular space) | `\1 %` |
+| Replace with (non-breaking space) | `\1^s%` |
+
+To fix values that already have a regular space (`5 %`), put the space in the Find
+pattern. Use the optional-space variant to normalize both spaced and unspaced values in
+one pass.
+
+| Purpose | Find what | Replace with |
+|---------|-----------|--------------|
+| Convert an existing regular space to non-breaking | `([0-9]) %` | `\1^s%` |
+| Catch spaced and unspaced together, normalize to non-breaking | `([0-9]) {0,1}%` | `\1^s%` |
+
+- `([0-9])` captures the digit into group 1; `\1` puts it back. `%` is literal in wildcard mode.
+- `^s` is a non-breaking space and keeps the number and `%` on the same line. It works only in the Replace field, never in Find.
+- The space in Find is invisible: put exactly one regular space between `)` and `%` (or before `{0,1}`). `{0,1}` means zero or one of the preceding space.
+- A regular space in Find does not match a non-breaking space, so values already using a non-breaking space are skipped. The patterns are idempotent - re-running changes nothing already correct.
+
 ## Requirements
 
 - PowerShell 5.1 or PowerShell 7+
