@@ -81,7 +81,7 @@ NIST NCSTAR theme palette:
   folHlink  #954F72  Followed Hyperlink
 "@ -ForegroundColor Cyan
 
-$genericScript = Join-Path (Split-Path $PSScriptRoot -Parent) 'word\Set-ThemeColors.ps1'
+$genericScript = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'word\Set-ThemeColors.ps1'
 
 $args_ = @{
     ColorSchemeXml = $nistClrScheme

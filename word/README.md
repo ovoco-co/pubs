@@ -6,6 +6,43 @@ These tools are client-agnostic. They work on any Word document from any organiz
 
 ## Scripts
 
+Copy the scripts from WSL into the folder holding the documents, then run them in place against that folder.
+
+```powershell
+# 1. Copy the /word scripts from WSL into the document folder
+$docs = "$env:USERPROFILE\Documents\260726"
+Copy-Item \\wsl$\Ubuntu-24.04\home\artist\ovoco\tools\publishing\word\*.ps1 "$docs\" -Force
+
+# 2. cd into that folder so .\ resolves
+cd "$docs\"
+
+# 3. Run the scripts against the folder
+.\Set-PageLayout.ps1 -Folder $docs -InnerInches 1.25 -OuterInches 0.75
+.\Set-TableLook.ps1  -Folder $docs
+.\Set-DocTitle.ps1   -Folder $docs          # no -Title, so PowerShell prompts for it
+.\Reapply-Styles.ps1 -Folder $docs          # cleanup: run after authors hand a document back
+
+# Theme colors (needs the color scheme XML passed in)
+.\Set-ThemeColors.ps1 -Folder $docs -ColorSchemeXml "<a:clrScheme>...</a:clrScheme>" -Force
+```
+
+**Entering the title.** `Set-DocTitle.ps1` declares `-Title` as a mandatory parameter. Leave it off and PowerShell pauses to ask for it in the console:
+
+```
+cmdlet Set-DocTitle.ps1 at command pipeline position 1
+Supply values for the following parameters:
+Title:
+```
+
+Type the title, press Enter, and it applies to every `.docx` in the folder. For a per-file title, use `-File "$docs\Chapter-00.docx"` instead of `-Folder`.
+
+Notes:
+
+- Each script lists its targets and asks `Proceed? (y/N)` first. Type `y`, or add `-Force` to skip the prompt.
+- Swap `-Folder` for `-File "one.docx"` to test on a single file first.
+- `Set-PageLayout.ps1` defaults to 1.0" margins all around; pass `-InnerInches`/`-OuterInches` for a mirror layout.
+- The full NIST template build (theme palette, style architecture, headers/footers) uses the client scripts in `../clients/nist/` - those steps have no generic `word/` equivalent. See `../clients/nist/README.md` for that six-step pipeline.
+
 ### Inspection (read-only)
 
 | Script | What it does |
@@ -73,6 +110,35 @@ Audit-WordTheme.ps1 -File "master.dotx"
 # 3. Convert explicit colors to theme references
 # 4. Repack and verify
 ```
+
+## Word Wildcard Find and Replace
+
+Text fixes done in Word itself (not at the OOXML layer). In Find and Replace
+(`Ctrl+H`), click **More** and check **Use wildcards**, then use these patterns.
+
+### Space between a number and the percent sign
+
+Inserts a space where a digit sits directly against `%`.
+
+| Field | Value |
+|-------|-------|
+| Find what | `([0-9])%` |
+| Replace with (regular space) | `\1 %` |
+| Replace with (non-breaking space) | `\1^s%` |
+
+To fix values that already have a regular space (`5 %`), put the space in the Find
+pattern. Use the optional-space variant to normalize both spaced and unspaced values in
+one pass.
+
+| Purpose | Find what | Replace with |
+|---------|-----------|--------------|
+| Convert an existing regular space to non-breaking | `([0-9]) %` | `\1^s%` |
+| Catch spaced and unspaced together, normalize to non-breaking | `([0-9]) {0,1}%` | `\1^s%` |
+
+- `([0-9])` captures the digit into group 1; `\1` puts it back. `%` is literal in wildcard mode.
+- `^s` is a non-breaking space and keeps the number and `%` on the same line. It works only in the Replace field, never in Find.
+- The space in Find is invisible: put exactly one regular space between `)` and `%` (or before `{0,1}`). `{0,1}` means zero or one of the preceding space.
+- A regular space in Find does not match a non-breaking space, so values already using a non-breaking space are skipped. The patterns are idempotent - re-running changes nothing already correct.
 
 ## Requirements
 
