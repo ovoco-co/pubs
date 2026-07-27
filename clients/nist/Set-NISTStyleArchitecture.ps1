@@ -167,9 +167,12 @@ $delete = @(
 $tableKeep = @('TableNormal', 'TableGrid', 'HM-Cover', 'HM-Data', 'NIST-Data')
 
 # Colors to set on specific styles (styleId -> hex without #).
-# Hex values that map to a NIST theme slot also get a w:themeColor reference
-# attached so changing the theme (Design > Colors in Word) carries these
-# styles with it. The hex-to-theme lookup lives in Set-Color.
+# The color is written as a hard-coded hex value (<w:color w:val="00257A"/>)
+# with NO w:themeColor reference. This locks the color to the style so it
+# survives Word's Import Styles / Organizer into a document with a different
+# theme. (A theme reference would re-resolve against the destination's palette
+# and reset to that document's slot color, e.g. the "Word 2003" default.)
+# Trade-off: Design > Colors no longer recolors these styles automatically.
 $setColor = [ordered]@{
     'header'         = '00257A'
     'HeaderChar'     = '00257A'
@@ -203,17 +206,16 @@ $setColor = [ordered]@{
     'AppendixHead4'  = '00257A'
 }
 
-# Hex -> theme color slot map. Any setColor hex that matches one of these
-# gets a w:themeColor attribute added so the style follows the theme palette.
-$hexToThemeColor = @{
-    '00257A' = 'accent1'   # Resolution Blue (Study/NIST primary)
-    'D55E00' = 'accent2'   # Tawny (Schools)
-    '009E73' = 'accent3'   # Shamrock Green (Hospitals)
-    '990B38' = 'accent4'   # Claret (Disruptions)
-    '56B4E9' = 'accent5'   # Picton Blue
-    'C15C94' = 'accent6'   # Mulberry
-    '355195' = 'dk2'       # NCSTAR Secondary
-}
+# NIST palette reference (documentation only). The style colors above are
+# written as fixed hex, NOT linked to these theme slots, so they never reset
+# when styles are imported into a document with a different theme.
+#   00257A  Resolution Blue   (Study/NIST primary)
+#   D55E00  Tawny             (Schools)
+#   009E73  Shamrock Green    (Hospitals)
+#   990B38  Claret            (Disruptions)
+#   56B4E9  Picton Blue
+#   C15C94  Mulberry
+#   355195  NCSTAR Secondary
 
 # Set the default paragraph style inside a table style to TableText (instead of
 # Normal). Inserts <w:pPr><w:pStyle w:val="TableText"/></w:pPr> only at the
@@ -617,7 +619,7 @@ foreach ($target in $targets) {
     $colorHits = 0
     foreach ($id in $setColor.Keys) {
         $hex = $setColor[$id]
-        $result = Edit-StyleBlock -Xml $xml -Id $id -Mutator { param($block, $attrs, $body) Set-StyleColor -Block $block -HexNoHash $hex -HexToThemeMap $hexToThemeColor }
+        $result = Edit-StyleBlock -Xml $xml -Id $id -Mutator { param($block, $attrs, $body) Set-StyleColor -Block $block -HexNoHash $hex }
         $xml = $result[0]
         if ($result[1]) { $colorHits++ }
     }
