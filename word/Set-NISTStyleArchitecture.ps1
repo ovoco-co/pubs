@@ -79,7 +79,7 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 # Import the generic OoXml module for style and numbering manipulation
-$ooXmlModule = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'word\OoXml\OoXml.psd1'
+$ooXmlModule = Join-Path $PSScriptRoot 'OoXml\OoXml.psd1'
 Import-Module $ooXmlModule -Force
 
 # ---------------------------------------------------------------------------

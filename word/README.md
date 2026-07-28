@@ -1,47 +1,63 @@
 # Word Template Toolkit
 
-Generic PowerShell scripts for working with Word templates at the OOXML layer. Reads files directly as zip archives of XML using `System.IO.Compression` and `System.Xml`, so Word does not need to be installed. Works on Windows, WSL, Linux, and macOS with PowerShell 5.1+.
+PowerShell scripts for working with Word templates at the OOXML layer. Reads files directly as zip archives of XML using `System.IO.Compression` and `System.Xml`, so Word does not need to be installed. Works on Windows, WSL, Linux, and macOS with PowerShell 5.1+.
 
-These tools are client-agnostic. They work on any Word document from any organization. Client-specific template tools live in `../clients/<client>/`.
+Most scripts are client-agnostic and work on any Word document. The `Set-NIST*` / `Audit-NIST*` scripts are NIST-specific: they are thin wrappers that supply the NIST palette, style list, and margins and delegate to the generic engines in this same folder. The `ncstar/` and `nwirp/` subfolders hold the report-assembly tools for those two NIST document sets.
 
-## Scripts
+## Running the scripts
 
-Copy the scripts from WSL into the folder holding the documents, then run them in place against that folder.
+`cd` into this folder and run each script with `.\`. Do NOT copy the scripts into the document folder - the `Set-NIST*` wrappers find their generic engine and the `OoXml/` module by their own location, so they must run from here. Point `-Folder` at wherever the `.docx` files live.
 
 ```powershell
-# 1. Copy the /word scripts from WSL into the document folder
+# cd into the toolkit folder (WSL path from Windows; adjust the distro name if yours differs)
+cd \\wsl$\Ubuntu-24.04\home\artist\ovoco\tools\publishing\word
+
 $docs = "$env:USERPROFILE\Documents\260726"
-Copy-Item \\wsl$\Ubuntu-24.04\home\artist\ovoco\tools\publishing\word\*.ps1 "$docs\" -Force
-
-# 2. cd into that folder so .\ resolves
-cd "$docs\"
-
-# 3. Run the scripts against the folder
 .\Set-PageLayout.ps1 -Folder $docs -InnerInches 1.25 -OuterInches 0.75
-.\Set-TableLook.ps1  -Folder $docs
-.\Set-DocTitle.ps1   -Folder $docs          # no -Title, so PowerShell prompts for it
-.\Reapply-Styles.ps1 -Folder $docs          # cleanup: run after authors hand a document back
-
-# Theme colors (needs the color scheme XML passed in)
-.\Set-ThemeColors.ps1 -Folder $docs -ColorSchemeXml "<a:clrScheme>...</a:clrScheme>" -Force
 ```
 
-**Entering the title.** `Set-DocTitle.ps1` declares `-Title` as a mandatory parameter. Leave it off and PowerShell pauses to ask for it in the console:
+(From another directory without `cd`, call by full path with the `&` operator instead: `& "\\wsl$\...\word\Set-PageLayout.ps1" -Folder $docs`.)
 
-```
-cmdlet Set-DocTitle.ps1 at command pipeline position 1
-Supply values for the following parameters:
-Title:
+- Each script lists its targets and asks `Proceed? (y/N)`. Type `y`, or add `-Force` to skip.
+- Swap `-Folder` for `-File "one.docx"` to test on a single file first.
+- Scripts that modify files write a `.bak` backup before overwriting.
+
+## NIST template build
+
+Apply the NIST template to a folder of chapter files. Order matters: step 1 installs the palette that step 2's styles reference.
+
+```powershell
+cd \\wsl$\Ubuntu-24.04\home\artist\ovoco\tools\publishing\word
+$docs = "$env:USERPROFILE\Documents\260726"
+
+.\Set-NISTTheme.ps1               -Folder $docs
+.\Set-NISTStyleArchitecture.ps1   -Folder $docs
+.\Set-PageLayout.ps1              -Folder $docs -InnerInches 1.25 -OuterInches 0.75
+.\Set-TableLook.ps1               -Folder $docs
+.\Set-DocTitle.ps1                -Folder $docs   # no -Title, so PowerShell prompts
+.\Set-NISTHeaderFooterContent.ps1 -Folder $docs
+.\Remove-Shading.ps1              -Folder $docs   # drop stray text/paragraph backgrounds
 ```
 
-Type the title, press Enter, and it applies to every `.docx` in the folder. For a per-file title, use `-File "$docs\Chapter-00.docx"` instead of `-Folder`.
+**Entering the title.** `Set-DocTitle.ps1` declares `-Title` mandatory. Leave it off and PowerShell pauses to ask (`Title:`); type the report title (for example `NIST NCSTAR 4-3, Hurricane Maria Investigation`) and it applies to every file. Pass `-Title "..."` to skip the prompt, or `-File "$docs\Chapter-00.docx"` for a per-file title.
 
 Notes:
 
-- Each script lists its targets and asks `Proceed? (y/N)` first. Type `y`, or add `-Force` to skip the prompt.
-- Swap `-Folder` for `-File "one.docx"` to test on a single file first.
-- `Set-PageLayout.ps1` defaults to 1.0" margins all around; pass `-InnerInches`/`-OuterInches` for a mirror layout.
-- The full NIST template build (theme palette, style architecture, headers/footers) uses the client scripts in `../clients/nist/` - those steps have no generic `word/` equivalent. See `../clients/nist/README.md` for that six-step pipeline.
+- **NIST margins.** `Set-PageLayout.ps1` defaults to 1.0" all around; `-InnerInches 1.25 -OuterInches 0.75` are the NIST mirror-margin values.
+- **Style colors are fixed hex**, not theme-linked, so they survive Word's Import Styles into a document with a different theme. Changing Design > Colors will not recolor them.
+- `Reapply-Styles.ps1` (strip direct character formatting) is a separate post-authoring cleanup step, not part of this build.
+
+## Scripts
+
+### NIST template (this folder)
+
+| Script | What it does |
+|--------|-------------|
+| `Set-NISTTheme.ps1` | Thin wrapper: passes the NIST NCSTAR palette to `Set-ThemeColors.ps1`. |
+| `Set-NISTStyleArchitecture.ps1` | Imports `OoXml/OoXml.psd1` and applies NIST style config. Rebases Heading1-9, BodyText, Caption, List Bullet/Number onto `xx*`. Deletes junk styles. Sets style colors as fixed hex. Sets the bullet-glyph ladder. |
+| `Set-NISTHeaderFooterContent.ps1` | Installs even/odd/first header and footer parts with STYLEREF chapter number/title and TITLE+PAGE fields. |
+| `Install-NISTThemeColors.ps1` | Thin wrapper: installs the NIST palette into the user's Word Theme Colors folder. Per-user; does not touch documents. |
+| `Audit-NISTStyleSet.ps1` | Thin wrapper: passes the required/optional NIST style ids to `Audit-StyleSet.ps1`. Pre-assembly gate for `ncstar/Build-NISTReport.ps1`. |
 
 ### Inspection (read-only)
 
@@ -60,6 +76,7 @@ Notes:
 | `Expand-WordPackage.ps1` | Unpacks a Word file into a folder of XML files for hand editing. Creates a backup first. |
 | `Compress-WordPackage.ps1` | Repacks an unpacked folder back into a valid Word file. Validates the result before overwriting. |
 | `Reapply-Styles.ps1` | Strips run-level direct character formatting so paragraph styles render cleanly. Preserves italic, superscript/subscript, and OLE/MathType equations. |
+| `Remove-Shading.ps1` | Removes locally applied (direct) shading from runs and paragraphs, so text and bullets show no background. Keeps style-defined shading (styles.xml is never touched) and table-cell fills (unless `-IncludeTables`). |
 | `Set-DocTitle.ps1` | Sets `<dc:title>` in docProps/core.xml. Works for any title string in any Word document. |
 | `Set-PageLayout.ps1` | Sets page margins with mirror margins. Configurable via -InnerInches, -OuterInches, -TopInches, -BottomInches, -HeaderInches, -FooterInches. |
 | `Set-TableLook.ps1` | Normalizes `<w:tblLook>` to formal report defaults (Header Row + Repeat Header + Banding) and adds `<w:tblHeader/>` to first rows. |
@@ -67,9 +84,37 @@ Notes:
 | `Install-ThemeColors.ps1` | Installs a theme color scheme file into the user's Word Theme Colors folder so Design > Colors displays it by name. |
 | `Audit-StyleSet.ps1` | Generic style audit engine. Checks that caller-supplied required style ids exist in styles.xml. Returns non-zero on drift. JSON or table output. |
 
+### Removing stray shading
+
+`Remove-Shading.ps1` targets shading applied as direct formatting - the "Pattern: Clear (White)" white box (and any other pale fill) that text and bullets pick up from pasting or template imports. Shading that comes from a style belongs and is kept.
+
+```powershell
+# Whole folder (backs up each file to <name>.shading.bak)
+.\Remove-Shading.ps1 -Folder $docs
+
+# One file
+.\Remove-Shading.ps1 -File "$docs\Chapter-02.docx"
+
+# Also strip direct table-cell fills
+.\Remove-Shading.ps1 -Folder $docs -IncludeTables
+```
+
+### Reapply styles (Word macro)
+
+After Word's Import Styles, some paragraphs keep a stale look until you re-click the style, even with no direct formatting to clear. A file edit cannot fix this - the file is already correct and it is Word's rendering that is stale. `ReapplyAllStyles.bas` re-applies each paragraph's own style across the whole document, the same as clicking the style, but on every paragraph.
+
+To use: in Word press **Alt+F11**, Insert > Module, paste the contents of `ReapplyAllStyles.bas`, press **F5**. It does not clear direct formatting (neither does clicking a style); use `Remove-Shading.ps1` or `Reapply-Styles.ps1` for that.
+
+### Report builds
+
+| Folder | What it holds |
+|--------|---------------|
+| `ncstar/` | NCSTAR report assembly and front-matter validation (`Build-NISTReport.ps1`, `Test-NISTFrontMatter.ps1`). See `ncstar/README.md`. |
+| `nwirp/` | NWIRP building-block and snippet builders. See `nwirp/README.md`. |
+
 ### OoXml Module
 
-The `OoXml/` subdirectory is a PowerShell module for generic OOXML style and numbering manipulation. Client scripts import this module and pass their configuration data.
+The `OoXml/` subdirectory is a PowerShell module for generic OOXML style and numbering manipulation. The NIST style script imports this module and passes its configuration data.
 
 ```powershell
 Import-Module ./OoXml/OoXml.psd1
@@ -99,16 +144,6 @@ Expand-WordPackage.ps1 -File "master.dotx" -OpenEditor
 # 2. Edit XML in VSCode
 # 3. Repack (validates before overwriting)
 Compress-WordPackage.ps1 -SourceDir "master_unpacked"
-```
-
-### Make theme colors permanent
-
-```powershell
-# 1. Audit current color usage
-Audit-WordTheme.ps1 -File "master.dotx"
-# 2. Unpack and edit theme1.xml and styles.xml
-# 3. Convert explicit colors to theme references
-# 4. Repack and verify
 ```
 
 ## Word Wildcard Find and Replace
@@ -143,7 +178,7 @@ one pass.
 ## Requirements
 
 - PowerShell 5.1 or PowerShell 7+
-- No Word, no COM automation
+- No Word, no COM automation (except the optional PDF export in `ncstar/Build-NISTReport.ps1` and the `ReapplyAllStyles.bas` macro, which run inside Word)
 
 Network paths (UNC like `\\server\share`) work directly. The scripts resolve them via `ProviderPath`.
 

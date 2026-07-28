@@ -47,6 +47,6 @@ $themeColorsXml = @'
 </a:clrScheme>
 '@
 
-$genericScript = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'word\Install-ThemeColors.ps1'
+$genericScript = Join-Path $PSScriptRoot 'Install-ThemeColors.ps1'
 
 & $genericScript -SchemeName 'NIST NCSTAR' -ColorSchemeXml $themeColorsXml -Force:$Force

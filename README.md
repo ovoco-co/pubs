@@ -6,7 +6,7 @@ PowerShell scripts and tools for documentation engineering across multiple publi
 
 ### Word (`word/`)
 
-Generic OOXML inspection and manipulation tools. Work on any Word document from any client or organization. Inspect styles, compare templates for drift, unpack/repack OOXML packages, audit theme colors, strip direct formatting. No Word installation required.
+OOXML inspection and manipulation tools. The generic scripts work on any Word document from any client: inspect styles, compare templates for drift, unpack/repack OOXML packages, audit theme colors, strip direct formatting and shading. No Word installation required. The NIST template wrappers (`Set-NIST*`, `Audit-NISTStyleSet`) and the NCSTAR/NWIRP report builders (`word/ncstar/`, `word/nwirp/`) live here too. See `word/README.md`.
 
 ### DITA (`dita/`)
 
@@ -25,21 +25,20 @@ Note: `dita/` converts Word content INTO DITA format. `frame/structured/dita/` p
 
 ## Client Implementations (`clients/`)
 
-Client-specific template tools that customize the generic toolkit for a particular organization's standards:
+Per-client notes. The NIST template tools were consolidated into `word/` (wrappers alongside the generic engines; `word/ncstar/` and `word/nwirp/` for the report builders), so all Word scripts live in one folder.
 
-- `clients/nist/` - Shared NIST template tools (theme, style architecture, layout, headers/footers)
-  - `clients/nist/ncstar/` - NCSTAR report builds and Excel VBA
-  - `clients/nist/nwirp/` - NWIRP report builds and Excel VBA
-- `clients/navy/` - Navy-specific tools
+- NIST - now in `word/` (see `word/README.md`)
+- `clients/navy/` - Navy-specific tools (placeholder)
 
 ## Onboarding a New Client
 
-1. Create a folder under `clients/` named for the client (e.g., `clients/jpl/`)
-2. Copy the NIST shared scripts as a starting point
-3. Rename scripts to use the new client prefix (e.g., `Set-JPLTheme.ps1`)
-4. Modify the color palette, style names, page layout, and header/footer content
-5. Add document-set-specific build tools in subfolders as needed
-6. The generic tools in `word/` remain unchanged
+Client scripts are thin wrappers that supply client configuration (palette, style list, margins) and delegate to the generic engines in `word/`:
+
+1. Add `Set-<Client>Theme.ps1` calling `word/Set-ThemeColors.ps1` with the client palette
+2. Add `Set-<Client>StyleArchitecture.ps1` importing `word/OoXml/OoXml.psd1` with the client style config
+3. Add thin wrappers for page layout, audit, and headers/footers as needed
+4. Keep wrappers in `word/` so they resolve the engines and `OoXml/` module by their own location
+5. The generic engines in `word/` remain unchanged
 
 ## Requirements
 

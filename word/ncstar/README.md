@@ -24,7 +24,7 @@ Build-NISTReport.ps1 -Folder $dir -Series NCSTAR_4-3 `
 
 ## Known Dependencies
 
-- `Build-NISTReport.ps1` references `Audit-NISTStyleSet.ps1` (in parent `../`) via `$PSScriptRoot`. This path reference needs updating for the new directory structure (tracked for sprint 2).
+- `Build-NISTReport.ps1` references `Audit-NISTStyleSet.ps1` in the parent `../` (now `publishing/word/`) via `$PSScriptRoot`. Resolves correctly after the consolidation into `word/`.
 
 ## Prerequisites
 
