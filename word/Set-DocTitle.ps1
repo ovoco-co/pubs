@@ -19,16 +19,23 @@
     Path to a folder. Applies to every Word file in the folder.
 
 .PARAMETER Title
-    The title string to set. Required.
+    The title string to set. If omitted, the script walks each target file
+    one at a time, shows its name, and prompts you for that file's title.
+    If supplied, the same title is applied to every target.
 
 .PARAMETER Force
-    Skip the confirmation prompt.
+    Skip the confirmation prompt (only applies when -Title is supplied;
+    the per-file prompt is its own confirmation).
 
 .EXAMPLE
     .\Set-DocTitle.ps1 -File "Report-Template.dotx" -Title "Quarterly Status Report"
 
 .EXAMPLE
     .\Set-DocTitle.ps1 -Folder "C:\templates" -Title "Annual Investigation Report"
+
+.EXAMPLE
+    # Prompt for each file's title, one at a time:
+    .\Set-DocTitle.ps1 -Folder "C:\templates"
 #>
 
 [CmdletBinding(DefaultParameterSetName='File')]
@@ -39,7 +46,6 @@ param(
     [Parameter(Mandatory=$true, ParameterSetName='Folder')]
     [string]$Folder,
 
-    [Parameter(Mandatory=$true)]
     [string]$Title,
 
     [switch]$Force
@@ -64,19 +70,40 @@ if ($PSCmdlet.ParameterSetName -eq 'File') {
 
 if ($targets.Count -eq 0) { throw "No supported Word files found." }
 
-$encodedTitle = [System.Web.HttpUtility]::HtmlEncode($Title)
+$promptPerFile = -not $PSBoundParameters.ContainsKey('Title')
 
-Write-Host "Setting document title to: $Title" -ForegroundColor Cyan
-Write-Host "Targets:" -ForegroundColor Cyan
-$targets | ForEach-Object { Write-Host "  $_" }
-Write-Host ""
-
-if (-not $Force) {
-    $reply = Read-Host "Proceed? (y/N)"
-    if ($reply -notmatch '^[yY]') { throw "Aborted." }
+if ($promptPerFile) {
+    Write-Host "No -Title supplied. You will be prompted for each file's title." -ForegroundColor Cyan
+    Write-Host "$($targets.Count) file(s) to process. Leave a title blank to skip that file." -ForegroundColor Cyan
+} else {
+    Write-Host "Setting document title to: $Title" -ForegroundColor Cyan
+    Write-Host "Targets:" -ForegroundColor Cyan
+    $targets | ForEach-Object { Write-Host "  $_" }
+    Write-Host ""
+    if (-not $Force) {
+        $reply = Read-Host "Proceed? (y/N)"
+        if ($reply -notmatch '^[yY]') { throw "Aborted." }
+    }
 }
 
+$i = 0
 foreach ($target in $targets) {
+    $i++
+
+    if ($promptPerFile) {
+        Write-Host ""
+        Write-Host "[$i/$($targets.Count)] $([System.IO.Path]::GetFileName($target))" -ForegroundColor Cyan
+        $fileTitle = Read-Host "Title (blank to skip)"
+        if ([string]::IsNullOrWhiteSpace($fileTitle)) {
+            Write-Host "  Skipped." -ForegroundColor DarkGray
+            continue
+        }
+    } else {
+        $fileTitle = $Title
+    }
+
+    $encodedTitle = [System.Web.HttpUtility]::HtmlEncode($fileTitle)
+
     Write-Host ""
     Write-Host "Processing $target..." -ForegroundColor Yellow
 

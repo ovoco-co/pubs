@@ -34,12 +34,19 @@ $docs = "$env:USERPROFILE\Documents\260726"
 .\Set-NISTStyleArchitecture.ps1   -Folder $docs
 .\Set-PageLayout.ps1              -Folder $docs -InnerInches 1.25 -OuterInches 0.75
 .\Set-TableLook.ps1               -Folder $docs
-.\Set-DocTitle.ps1                -Folder $docs   # no -Title, so PowerShell prompts
+.\Set-DocTitle.ps1                -Folder $docs   # no -Title, so it prompts per file
 .\Set-NISTHeaderFooterContent.ps1 -Folder $docs
 .\Remove-Shading.ps1              -Folder $docs   # drop stray text/paragraph backgrounds
 ```
 
-**Entering the title.** `Set-DocTitle.ps1` declares `-Title` mandatory. Leave it off and PowerShell pauses to ask (`Title:`); type the report title (for example `NIST NCSTAR 4-3, Hurricane Maria Investigation`) and it applies to every file. Pass `-Title "..."` to skip the prompt, or `-File "$docs\Chapter-00.docx"` for a per-file title.
+**Entering the title.** Leave `-Title` off and `Set-DocTitle.ps1` walks each file one at a time, showing `[n/total] filename`, and prompts you for that file's title:
+
+```
+[1/7] NCSTAR_4-3_Chapter-00_Front-Matter.docx
+Title (blank to skip):
+```
+
+Type the title and press Enter; it sets it and moves to the next file. Leaving a title blank skips that file. This is the usual mode when each chapter carries its own title. Pass `-Title "..."` to apply one title to every file instead (with a single y/N confirmation), or `-File "$docs\Chapter-00.docx"` to target just one.
 
 Notes:
 
