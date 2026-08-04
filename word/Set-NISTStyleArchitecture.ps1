@@ -18,6 +18,8 @@
       Table and Figure Footnotes                       -> xxtable
       Verso_head                                       -> xxheader
       Verso_text                                       -> xxbase
+      Sidebar                                          -> xxtable (sans callout)
+      Sidebar Bullet                                   -> Sidebar (parallel)
       Term-Abbrev                                      -> Frontmatterhead4
       Appendix_Head4                                   -> AppendixHead (parallel)
       Findings_, RecommendFindingData                  -> xxbase
@@ -135,6 +137,11 @@ $rebase = [ordered]@{
     'Series'                   = 'xxheader'
     'Findings_'                = 'xxbase'
     'RecommendFindingData'     = 'xxbase'
+    # Sidebar callout family: root on the sans table-text engine (9pt Source
+    # Sans Pro) so it stays a managed style; SidebarBullet keeps Sidebar as its
+    # base for the frame + bullet numbering.
+    'Sidebar'                  = 'xxtable'
+    'SidebarBullet'            = 'Sidebar'
 }
 
 # Delete: styleIds to remove from styles.xml
@@ -168,7 +175,7 @@ $delete = @(
 )
 
 # Table-style allowlist: every style of type="table" NOT in this list gets deleted.
-$tableKeep = @('TableNormal', 'TableGrid', 'HM-Cover', 'HM-Data', 'NIST-Data')
+$tableKeep = @('TableNormal', 'TableGrid', 'HM-Cover', 'HM-Data', 'NIST-Data', 'SidebarTable')
 
 # Colors to set on specific styles (styleId -> hex without #).
 # The color is written as a hard-coded hex value (<w:color w:val="00257A"/>)
@@ -263,6 +270,13 @@ $tableTextEdit = {
 # To use: in Word, place cursor in a table, open Table Design ribbon, pick
 # NIST-Data from the gallery, tick Header Row + Total Row + Banded Rows.
 $NIST_DATA_CANONICAL = '<w:style w:type="table" w:customStyle="1" w:styleId="NIST-Data"><w:name w:val="NIST-Data"/><w:basedOn w:val="TableNormal"/><w:uiPriority w:val="52"/><w:qFormat/><w:rsid w:val="00B64025"/><w:pPr><w:pStyle w:val="TableText"/></w:pPr><w:tblPr><w:tblStyleRowBandSize w:val="1"/><w:tblStyleColBandSize w:val="1"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/><w:left w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/><w:bottom w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/><w:right w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/><w:insideH w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/><w:insideV w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/></w:tblBorders><w:tblCellMar><w:top w:w="14" w:type="dxa"/><w:left w:w="29" w:type="dxa"/><w:bottom w:w="14" w:type="dxa"/><w:right w:w="29" w:type="dxa"/></w:tblCellMar></w:tblPr><w:trPr><w:jc w:val="center"/></w:trPr><w:tblStylePr w:type="firstRow"><w:pPr><w:jc w:val="center"/></w:pPr><w:rPr><w:b/><w:color w:val="FFFFFF"/></w:rPr><w:tblPr/><w:tcPr><w:tcBorders><w:bottom w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/></w:tcBorders><w:shd w:val="clear" w:color="auto" w:fill="00257A"/><w:vAlign w:val="center"/></w:tcPr></w:tblStylePr><w:tblStylePr w:type="lastRow"><w:rPr><w:b/></w:rPr><w:tblPr/><w:tcPr><w:tcBorders><w:top w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/></w:tcBorders><w:shd w:val="clear" w:color="auto" w:fill="FFF2CC"/></w:tcPr></w:tblStylePr><w:tblStylePr w:type="firstCol"><w:tblPr/><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="D9D9D9"/></w:tcPr></w:tblStylePr><w:tblStylePr w:type="band1Horz"><w:tblPr/><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="D9D9D9"/></w:tcPr></w:tblStylePr></w:style>'
+
+# Canonical Sidebar table style. A shaded callout box: whole-table light amber
+# fill (FFF2CC) via the style-level tcPr, thin gray borders, sans table text
+# (TableText). Fixed hex fill so it survives Import Styles. Installed fresh on
+# every run. Named "Sidebar Table" (styleId SidebarTable) so it does not collide
+# with the "Sidebar" paragraph style.
+$SIDEBAR_TABLE_CANONICAL = '<w:style w:type="table" w:customStyle="1" w:styleId="SidebarTable"><w:name w:val="Sidebar Table"/><w:basedOn w:val="TableNormal"/><w:uiPriority w:val="53"/><w:qFormat/><w:pPr><w:pStyle w:val="TableText"/></w:pPr><w:tblPr><w:tblBorders><w:top w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:left w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:bottom w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:right w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:insideH w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:insideV w:val="single" w:color="808080" w:sz="4" w:space="0"/></w:tblBorders><w:tblCellMar><w:top w:w="14" w:type="dxa"/><w:left w:w="29" w:type="dxa"/><w:bottom w:w="14" w:type="dxa"/><w:right w:w="29" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="FFF2CC"/></w:tcPr></w:style>'
 
 # HM-Data: lock the lastRow yellow (drop themeFill so it cannot drift with theme),
 # set the firstCol shading to F2F2F2, and set default cell margins:
@@ -712,6 +726,25 @@ foreach ($target in $targets) {
         $xml = [regex]::Replace($xml, '(<w:latentStyles\b[^>]*?w:count=")(\d+)(")',
             { param($m) "$($m.Groups[1].Value)$([int]$m.Groups[2].Value + 1)$($m.Groups[3].Value)" }, 1)
         Write-Host "  NIST-Data: lsdException added (gallery visibility)" -ForegroundColor DarkGray
+    }
+
+    # Sidebar table: install canonical (overwrite any existing block, else insert before </w:styles>)
+    if ($xml -match '<w:style[^>]*w:styleId="SidebarTable"[^>]*>.*?</w:style>') {
+        $xml = [regex]::Replace($xml, '(?s)<w:style[^>]*w:styleId="SidebarTable"[^>]*>.*?</w:style>', { param($m) $SIDEBAR_TABLE_CANONICAL }, 1)
+        Write-Host "  SidebarTable: reinstalled" -ForegroundColor DarkGray
+    } else {
+        $xml = [regex]::Replace($xml, '</w:styles>', { param($m) $SIDEBAR_TABLE_CANONICAL + '</w:styles>' }, 1)
+        Write-Host "  SidebarTable: installed (Sidebar Table, amber FFF2CC fill)" -ForegroundColor DarkGray
+    }
+
+    # Sidebar table: ensure lsdException so Word shows it in the Table Styles gallery
+    $lsdSidebar = '<w:lsdException w:name="Sidebar Table" w:uiPriority="53" w:semiHidden="0" w:unhideWhenUsed="0" w:qFormat="1"/>'
+    $latentMatchSb = [regex]::Match($xml, '<w:latentStyles\b.*?</w:latentStyles>', 'Singleline')
+    if ($latentMatchSb.Success -and $latentMatchSb.Value -notmatch 'w:name="Sidebar Table"') {
+        $xml = [regex]::Replace($xml, '</w:latentStyles>', "$lsdSidebar</w:latentStyles>", 1)
+        $xml = [regex]::Replace($xml, '(<w:latentStyles\b[^>]*?w:count=")(\d+)(")',
+            { param($m) "$($m.Groups[1].Value)$([int]$m.Groups[2].Value + 1)$($m.Groups[3].Value)" }, 1)
+        Write-Host "  SidebarTable: lsdException added (gallery visibility)" -ForegroundColor DarkGray
     }
 
     # HM-Data: lock yellow, set canonical cell margins
