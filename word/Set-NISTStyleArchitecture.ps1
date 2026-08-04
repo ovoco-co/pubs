@@ -10,7 +10,8 @@
     changes inside word/styles.xml:
 
     REBASE (change basedOn to break Normal inheritance):
-      Heading1-9, Front_matter_head1, Series           -> xxheader
+      Heading1-9, Series                               -> xxheader
+      Front_matter_head1-4                             -> Heading1-4 (match, no numbering)
       Caption                                          -> xxheader (same font as headers)
       BodyText                                         -> xxbase
       List Bullet, List Bullet 2-5                     -> xxbase
@@ -127,7 +128,11 @@ $rebase = [ordered]@{
     'TableandFigureFootnotes'  = 'xxtable'
     'Versohead'                = 'xxheader'
     'Versotext'                = 'xxbase'
-    'Frontmatterhead1'         = 'xxheader'
+    # Front matter heads 1-4 render exactly like Heading 1-4 (2-4 already were).
+    'Frontmatterhead1'         = 'Heading1'
+    'Frontmatterhead2'         = 'Heading2'
+    'Frontmatterhead3'         = 'Heading3'
+    'Frontmatterhead4'         = 'Heading4'
     'Term-Abbrev'              = 'Frontmatterhead4'
     # AppendixHead 1-4 render exactly like Heading 1-4: base each on its match.
     'AppendixHead'             = 'Heading1'
@@ -658,12 +663,13 @@ foreach ($target in $targets) {
     }
     Write-Host "  Rebased: $rebaseHits style(s)" -ForegroundColor DarkGray
 
-    # AppendixHead 1-4 must render exactly like Heading 1-4. The rebase above
-    # points each at its matching Heading; now clear each appendix head's own
-    # paragraph and run formatting (spacing, font, size overrides) so nothing
-    # overrides the inherited look. Color is re-applied by the setColor pass
-    # just below, and numbering suppression (numId=0) is added afterward.
-    $appendixMatchStrip = {
+    # AppendixHead 1-4 and Frontmatterhead 1-4 must render exactly like
+    # Heading 1-4. The rebase above points each at its matching Heading; now
+    # clear each one's own paragraph and run formatting (spacing, font, size
+    # overrides) so nothing overrides the inherited look. Color is re-applied by
+    # the setColor pass just below, and numbering suppression (numId=0) is added
+    # afterward.
+    $headMatchStrip = {
         param($block)
         $b = [regex]::Replace($block, '(?s)<w:pPr>.*?</w:pPr>', '')
         $b = [regex]::Replace($b, '<w:pPr\s*/>', '')
@@ -671,8 +677,9 @@ foreach ($target in $targets) {
         $b = [regex]::Replace($b, '<w:rPr\s*/>', '')
         return $b
     }
-    foreach ($ahId in @('AppendixHead','AppendixHead2','AppendixHead3','AppendixHead4')) {
-        $result = Edit-StyleBlock -Xml $xml -Id $ahId -Mutator $appendixMatchStrip
+    foreach ($ahId in @('AppendixHead','AppendixHead2','AppendixHead3','AppendixHead4',
+                        'Frontmatterhead1','Frontmatterhead2','Frontmatterhead3','Frontmatterhead4')) {
+        $result = Edit-StyleBlock -Xml $xml -Id $ahId -Mutator $headMatchStrip
         $xml = $result[0]
         if ($result[1]) { Write-Host "  ${ahId}: cleared own formatting to inherit its Heading" -ForegroundColor DarkGray }
     }
@@ -695,14 +702,16 @@ foreach ($target in $targets) {
     $xml = $h4[0]
     if ($h4[1]) { Write-Host "  Heading4: numbering removed" -ForegroundColor DarkGray }
 
-    # AppendixHead family: each is now basedOn its matching Heading (1-4), which
-    # can carry a chapter numId, so the inherited auto-number would leak into
-    # appendix titles. Install the explicit no-numbering marker
-    # <w:numPr><w:numId w:val="0"/></w:numPr> on every appendix level so the
+    # AppendixHead and Frontmatterhead families: each is now basedOn its matching
+    # Heading (1-4), and Heading 1-3 carry a chapter numId, so the inherited
+    # auto-number would leak into appendix and front-matter titles (a Table of
+    # Contents must not render as "Chapter 1"). Install the explicit no-numbering
+    # marker <w:numPr><w:numId w:val="0"/></w:numPr> on every level so the
     # suppression holds regardless of which Heading it inherits from.
     # $SuppressNumbering is provided by the OoXml module.
     foreach ($ahId in @('AppendixHead','AppendixHead2','AppendixHead3','AppendixHead4',
-                        'Appendix_Head','Appendix_Head2','Appendix_Head3','Appendix_Head4')) {
+                        'Appendix_Head','Appendix_Head2','Appendix_Head3','Appendix_Head4',
+                        'Frontmatterhead1','Frontmatterhead2','Frontmatterhead3','Frontmatterhead4')) {
         $ah = Edit-StyleBlock -Xml $xml -Id $ahId -Mutator $SuppressNumbering
         $xml = $ah[0]
         if ($ah[1]) { Write-Host "  ${ahId}: numbering suppressed (numId=0)" -ForegroundColor DarkGray }
