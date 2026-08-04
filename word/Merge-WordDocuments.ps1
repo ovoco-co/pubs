@@ -77,12 +77,10 @@
     combined document.
 #>
 
-[CmdletBinding(DefaultParameterSetName='Folder')]
+[CmdletBinding()]
 param(
-    [Parameter(Mandatory=$true, ParameterSetName='Folder')]
     [string]$Folder,
 
-    [Parameter(Mandatory=$true, ParameterSetName='Files')]
     [string[]]$Files,
 
     [string]$Output,
@@ -99,11 +97,17 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
+# -Folder and -Files are validated by hand rather than with parameter sets:
+# with two mandatory-in-set params the binder is fragile, so pick the mode here.
+if ($Folder -and $Files)             { throw "Specify either -Folder or -Files, not both." }
+if (-not $Folder -and -not $Files)   { throw "Specify -Folder <dir> or -Files <file1,file2,...>." }
+$mode = if ($Folder) { 'Folder' } else { 'Files' }
+
 # ---------------------------------------------------------------------------
 # Resolve output path first (so a folder scan can exclude it)
 # ---------------------------------------------------------------------------
 
-if ($PSCmdlet.ParameterSetName -eq 'Folder') {
+if ($mode -eq 'Folder') {
     if (-not (Test-Path -LiteralPath $Folder -PathType Container)) { throw "Folder not found: $Folder" }
     $folderResolved = (Resolve-Path -LiteralPath $Folder).ProviderPath
     if (-not $Output) { $Output = Join-Path $folderResolved 'Combined.docx' }
@@ -114,7 +118,7 @@ if (-not $Output) { throw "-Output is required when using -Files." }
 if (Test-Path -LiteralPath $Output -PathType Container) {
     $outputPath = Join-Path ((Resolve-Path -LiteralPath $Output).ProviderPath) 'Combined.docx'
 } else {
-    $outputDir = Split-Path -LiteralPath $Output -Parent
+    $outputDir = Split-Path -LiteralPath $Output   # -Parent is the default; it is illegal to combine with -LiteralPath
     if (-not $outputDir) { $outputDir = (Get-Location).ProviderPath }
     if (-not (Test-Path -LiteralPath $outputDir -PathType Container)) {
         New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
@@ -129,7 +133,7 @@ if (Test-Path -LiteralPath $Output -PathType Container) {
 # Build the ordered input list
 # ---------------------------------------------------------------------------
 
-if ($PSCmdlet.ParameterSetName -eq 'Folder') {
+if ($mode -eq 'Folder') {
     $inputs = [System.IO.DirectoryInfo]::new($folderResolved).GetFiles() |
         Where-Object {
             $_.Extension -ieq '.docx' -and
