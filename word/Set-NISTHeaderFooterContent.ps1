@@ -12,7 +12,9 @@
       Footer:
         - Even pages: PAGE on left (outer), TITLE on right (inner near binding)
         - Odd pages:  TITLE on left (inner near binding), PAGE on right (outer)
-        - First page of each section: blank
+        - First page: TITLE + PAGE (recto layout) on chapters; blank on the
+          front matter (pass -FrontMatter). The first-page HEADER stays blank
+          in both cases - the chapter title is already on that page.
       Header paragraph applies style HeaderEven (left-aligned) or HeaderOdd
       (right-aligned). Footer paragraph applies style FooterEven or FooterOdd.
       All four styles are created by Set-NISTStyleArchitecture.ps1 and carry
@@ -36,14 +38,22 @@
 .PARAMETER Folder
     Folder of Word files. All .docx/.dotx/.docm/.dotm in folder are processed.
 
+.PARAMETER FrontMatter
+    Treat the target as front matter: leave the first-page footer blank.
+    Without this switch (the chapter default) the first page carries a
+    TITLE + PAGE footer. Run the front-matter file with -FrontMatter and the
+    chapter files without it.
+
 .PARAMETER Force
     Skip the confirmation prompt.
 
 .EXAMPLE
-    .\Set-NISTHeaderFooterContent.ps1 -File "NCSTAR-4-1.docx"
+    # Chapters: first page gets a footer
+    .\Set-NISTHeaderFooterContent.ps1 -Folder "C:\chapters"
 
 .EXAMPLE
-    .\Set-NISTHeaderFooterContent.ps1 -Folder "C:\templates"
+    # Front matter: first page footer stays blank
+    .\Set-NISTHeaderFooterContent.ps1 -File "NCSTAR-4-3_Chapter-00_Front-Matter.docx" -FrontMatter
 #>
 
 [CmdletBinding(DefaultParameterSetName='File')]
@@ -53,6 +63,8 @@ param(
 
     [Parameter(Mandatory=$true, ParameterSetName='Folder')]
     [string]$Folder,
+
+    [switch]$FrontMatter,
 
     [switch]$Force
 )
@@ -138,6 +150,32 @@ function New-FtrFirst {
 '@
 }
 
+function New-FtrFirstContent {
+    # Chapter opening (first) page footer: recto layout - TITLE on inner (left),
+    # PAGE on outer (right) - same as the odd/default footer, using FooterOdd so
+    # it carries the horizontal rule and tab stops. Front matter uses the blank
+    # New-FtrFirst instead (pass -FrontMatter).
+@'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:p>
+    <w:pPr><w:pStyle w:val="FooterOdd"/></w:pPr>
+    <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+    <w:r><w:instrText xml:space="preserve"> TITLE \* MERGEFORMAT </w:instrText></w:r>
+    <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+    <w:r><w:t>Report Title</w:t></w:r>
+    <w:r><w:fldChar w:fldCharType="end"/></w:r>
+    <w:r><w:tab/></w:r>
+    <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+    <w:r><w:instrText xml:space="preserve"> PAGE \* MERGEFORMAT </w:instrText></w:r>
+    <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+    <w:r><w:t>1</w:t></w:r>
+    <w:r><w:fldChar w:fldCharType="end"/></w:r>
+  </w:p>
+</w:ftr>
+'@
+}
+
 function New-FtrEven {
     # Even (left-hand) page: PAGE on outer (left), TITLE on inner (right)
 @'
@@ -188,6 +226,8 @@ function New-FtrDefault {
 Write-Host "NIST Header/Footer Content Installer" -ForegroundColor Cyan
 Write-Host "  Targets:" -ForegroundColor Cyan
 $targets | ForEach-Object { Write-Host "    $_" }
+$firstFooterMode = if ($FrontMatter) { 'blank (front matter)' } else { 'TITLE + PAGE (chapter)' }
+Write-Host "  First-page footer: $firstFooterMode" -ForegroundColor Cyan
 Write-Host "  This will REPLACE all existing header*.xml and footer*.xml parts." -ForegroundColor Yellow
 Write-Host ""
 
@@ -341,7 +381,8 @@ foreach ($target in $targets) {
     $entries['word/nistHeaderFirst.xml']    = $utf8NoBom.GetBytes((New-HdrFirst))
     $entries['word/nistHeaderEven.xml']     = $utf8NoBom.GetBytes((New-HdrEven))
     $entries['word/nistHeaderDefault.xml']  = $utf8NoBom.GetBytes((New-HdrDefault))
-    $entries['word/nistFooterFirst.xml']    = $utf8NoBom.GetBytes((New-FtrFirst))
+    $firstFooter = if ($FrontMatter) { New-FtrFirst } else { New-FtrFirstContent }
+    $entries['word/nistFooterFirst.xml']    = $utf8NoBom.GetBytes($firstFooter)
     $entries['word/nistFooterEven.xml']     = $utf8NoBom.GetBytes((New-FtrEven))
     $entries['word/nistFooterDefault.xml']  = $utf8NoBom.GetBytes((New-FtrDefault))
 

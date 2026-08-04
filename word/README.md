@@ -35,7 +35,14 @@ $docs = "$env:USERPROFILE\Documents\260726"
 .\Set-PageLayout.ps1              -Folder $docs -InnerInches 1.25 -OuterInches 0.75
 .\Set-TableLook.ps1               -Folder $docs
 .\Set-DocTitle.ps1                -Folder $docs   # no -Title, so it prompts per file
-.\Set-NISTHeaderFooterContent.ps1 -Folder $docs
+
+# Header/footer: chapters get a first-page footer; front matter stays blank.
+# Run the front-matter file with -FrontMatter, the chapters without it.
+.\Set-NISTHeaderFooterContent.ps1 -File "$docs\NCSTAR_4-3_Chapter-00_Front-Matter.docx" -FrontMatter
+Get-ChildItem "$docs\*.docx" -Exclude '*Front-Matter*' | ForEach-Object {
+    .\Set-NISTHeaderFooterContent.ps1 -File $_.FullName -Force
+}
+
 .\Remove-Shading.ps1              -Folder $docs   # drop stray text/paragraph backgrounds
 ```
 
@@ -62,7 +69,7 @@ Notes:
 |--------|-------------|
 | `Set-NISTTheme.ps1` | Thin wrapper: passes the NIST NCSTAR palette to `Set-ThemeColors.ps1`. |
 | `Set-NISTStyleArchitecture.ps1` | Imports `OoXml/OoXml.psd1` and applies NIST style config. Rebases Heading1-9, BodyText, Caption, List Bullet/Number onto `xx*`. Deletes junk styles. Sets style colors as fixed hex. Sets the bullet-glyph ladder. |
-| `Set-NISTHeaderFooterContent.ps1` | Installs even/odd/first header and footer parts with STYLEREF chapter number/title and TITLE+PAGE fields. |
+| `Set-NISTHeaderFooterContent.ps1` | Installs even/odd/first header and footer parts with STYLEREF chapter number/title and TITLE+PAGE fields. Chapter first pages get a TITLE+PAGE footer; pass `-FrontMatter` to leave the front-matter first-page footer blank. |
 | `Install-NISTThemeColors.ps1` | Thin wrapper: installs the NIST palette into the user's Word Theme Colors folder. Per-user; does not touch documents. |
 | `Audit-NISTStyleSet.ps1` | Thin wrapper: passes the required/optional NIST style ids to `Audit-StyleSet.ps1`. Pre-assembly gate for `ncstar/Build-NISTReport.ps1`. |
 
