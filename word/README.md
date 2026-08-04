@@ -115,6 +115,30 @@ Notes:
 .\Remove-Shading.ps1 -Folder $docs -IncludeTables
 ```
 
+### Fixing quotes and typography
+
+`Repair-Typography.ps1` converts straight quotes (`"` `'`) to curly typographic quotes, choosing opening vs closing by context - tracked across run and paragraph boundaries so a quote that starts a run still opens correctly. Apostrophes (`it's`, `teachers'`, `the '90s`) resolve to the right form. Only `<w:t>` text is touched, so field codes (like `STYLEREF "Heading 1"`) stay straight. Already-curly quotes are left alone, so it is safe to re-run.
+
+```powershell
+# Whole folder (backs up each file to <name>.typography.bak)
+.\Repair-Typography.ps1 -Folder $docs
+
+# One file
+.\Repair-Typography.ps1 -File "$docs\Chapter-02.docx"
+
+# Also convert ... to a single ellipsis
+.\Repair-Typography.ps1 -Folder $docs -Ellipses
+```
+
+### Sidebar callout boxes
+
+A sidebar is a shaded box that floats at the right margin with the body text wrapping around it. It is two pieces because the float cannot live in a table style:
+
+1. In Word, put the sidebar content in a table and apply the **Sidebar Table** style (Table Design gallery). Amber `#FFF2CC` fill, thin borders, sans text, 3" wide.
+2. Run the pipeline (`Set-NISTStyleArchitecture.ps1` then `Set-TableLook.ps1`). `Set-TableLook.ps1` stamps the right-margin float + text wrapping onto every Sidebar-Table-styled table and forces the 3" width; the box is the same for every sidebar and only its height changes with the content.
+
+For sidebar *text* (not in a table), the **Sidebar** and **Sidebar Bullet** paragraph styles are managed by `Set-NISTStyleArchitecture.ps1` (sans 9pt, framed).
+
 ### Combining files into one document
 
 `Merge-WordDocuments.ps1` combines several Word files into a single document with a section break between each. The first file is the host: its theme, styles, numbering, and header/footer parts apply to the whole output. Each following file contributes body content; its own page geometry is kept as its section, but headers/footers are unified to the host's. Source files are never modified.
