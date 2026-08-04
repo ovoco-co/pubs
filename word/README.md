@@ -85,6 +85,7 @@ Notes:
 | `Reapply-Styles.ps1` | Strips run-level direct character formatting so paragraph styles render cleanly. Preserves italic, superscript/subscript, and OLE/MathType equations. |
 | `Remove-Shading.ps1` | Removes locally applied (direct) shading from runs and paragraphs, so text and bullets show no background. Keeps style-defined shading (styles.xml is never touched) and table-cell fills (unless `-IncludeTables`). |
 | `Set-DocTitle.ps1` | Sets `<dc:title>` in docProps/core.xml. Works for any title string in any Word document. |
+| `Merge-WordDocuments.ps1` | Combines several Word files into one with a section break between each. Uses the first file as the host (theme, styles, headers), renumbers rIds/bookmarks/footnotes, copies and renames media, accepts revisions, and strips comments. Originals untouched. |
 | `Set-PageLayout.ps1` | Sets page margins with mirror margins. Configurable via -InnerInches, -OuterInches, -TopInches, -BottomInches, -HeaderInches, -FooterInches. |
 | `Set-TableLook.ps1` | Normalizes `<w:tblLook>` to formal report defaults (Header Row + Repeat Header + Banding) and adds `<w:tblHeader/>` to first rows. |
 | `Set-ThemeColors.ps1` | Replaces the `<a:clrScheme>` in theme1.xml with a caller-supplied color scheme XML block. Validates all 12 theme slots are present. |
@@ -105,6 +106,26 @@ Notes:
 # Also strip direct table-cell fills
 .\Remove-Shading.ps1 -Folder $docs -IncludeTables
 ```
+
+### Combining files into one document
+
+`Merge-WordDocuments.ps1` combines several Word files into a single document with a section break between each. The first file is the host: its theme, styles, numbering, and header/footer parts apply to the whole output. Each following file contributes body content; its own page geometry is kept as its section, but headers/footers are unified to the host's. Source files are never modified.
+
+```powershell
+# Every .docx in the folder, in file-name order, -> <folder>\Combined.docx
+.\Merge-WordDocuments.ps1 -Folder $docs
+
+# Choose the output path
+.\Merge-WordDocuments.ps1 -Folder $docs -Output "$docs\Full-Draft.docx" -Force
+
+# Explicit order / subset (first file is the host)
+.\Merge-WordDocuments.ps1 -Files a.docx,b.docx,c.docx -Output out.docx
+
+# Start each document on an odd (right-hand) page
+.\Merge-WordDocuments.ps1 -Folder $docs -SectionBreak oddPage
+```
+
+It renumbers relationship, bookmark, and footnote/endnote ids, copies and renames each file's media, accepts tracked changes, and strips comments. Open the result and press **Ctrl+A** then **F9** to refresh the table of contents and other fields. For a full NIST deliverable with roman/decimal page numbering and a style-audit gate, use `ncstar/Build-NISTReport.ps1` instead.
 
 ### Reapply styles (Word macro)
 
