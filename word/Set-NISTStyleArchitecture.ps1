@@ -261,7 +261,8 @@ $tableTextEdit = {
 $NIST_DATA_CANONICAL = '<w:style w:type="table" w:customStyle="1" w:styleId="NIST-Data"><w:name w:val="NIST-Data"/><w:basedOn w:val="TableNormal"/><w:uiPriority w:val="52"/><w:qFormat/><w:rsid w:val="00B64025"/><w:pPr><w:pStyle w:val="TableText"/></w:pPr><w:tblPr><w:tblStyleRowBandSize w:val="1"/><w:tblStyleColBandSize w:val="1"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/><w:left w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/><w:bottom w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/><w:right w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/><w:insideH w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/><w:insideV w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/></w:tblBorders><w:tblCellMar><w:top w:w="14" w:type="dxa"/><w:left w:w="29" w:type="dxa"/><w:bottom w:w="14" w:type="dxa"/><w:right w:w="29" w:type="dxa"/></w:tblCellMar></w:tblPr><w:trPr><w:jc w:val="center"/></w:trPr><w:tblStylePr w:type="firstRow"><w:pPr><w:jc w:val="center"/></w:pPr><w:rPr><w:b/><w:color w:val="FFFFFF"/></w:rPr><w:tblPr/><w:tcPr><w:tcBorders><w:bottom w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/></w:tcBorders><w:shd w:val="clear" w:color="auto" w:fill="00257A"/><w:vAlign w:val="center"/></w:tcPr></w:tblStylePr><w:tblStylePr w:type="lastRow"><w:rPr><w:b/></w:rPr><w:tblPr/><w:tcPr><w:tcBorders><w:top w:val="single" w:color="808080" w:themeColor="background1" w:themeShade="80" w:sz="4" w:space="0"/></w:tcBorders><w:shd w:val="clear" w:color="auto" w:fill="FFF2CC"/></w:tcPr></w:tblStylePr><w:tblStylePr w:type="firstCol"><w:tblPr/><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="D9D9D9"/></w:tcPr></w:tblStylePr><w:tblStylePr w:type="band1Horz"><w:tblPr/><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="D9D9D9"/></w:tcPr></w:tblStylePr></w:style>'
 
 # HM-Data: lock the lastRow yellow (drop themeFill so it cannot drift with theme),
-# set default cell margins: top=0, bottom=0, left=29 twips (0.02"), right=29 twips (0.02").
+# set the firstCol shading to F2F2F2, and set default cell margins:
+# top=0, bottom=0, left=29 twips (0.02"), right=29 twips (0.02").
 $hmDataEdit = {
     param($block)
     # Drop themeFill/themeFillTint attributes from any <w:shd> that has a fill="FFF2CC"
@@ -289,6 +290,30 @@ $hmDataEdit = {
     # Force white text on the firstRow header (dark blue background needs it).
     $b = [regex]::Replace($b, '(<w:tblStylePr\s+w:type="firstRow">.*?<w:rPr>)(?!.*?<w:color\s)',
         '$1<w:color w:val="FFFFFF"/>', 1)
+
+    # First column shading: F2F2F2 (light gray), scoped to the firstCol
+    # conditional format so band1Horz striping is untouched. Fixed hex, no
+    # themeFill, so it survives Import Styles into a differently-themed doc.
+    $firstColShd = '<w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/>'
+    if ($b -match '<w:tblStylePr\s+w:type="firstCol">') {
+        $b = [regex]::Replace($b,
+            '(?s)(<w:tblStylePr\s+w:type="firstCol">.*?</w:tblStylePr>)',
+            {
+                param($m)
+                $blk = $m.Groups[1].Value
+                if ($blk -match '<w:shd\b[^>]*/>') {
+                    [regex]::Replace($blk, '<w:shd\b[^>]*/>', $firstColShd, 1)
+                } elseif ($blk -match '</w:tcPr>') {
+                    [regex]::Replace($blk, '</w:tcPr>', "$firstColShd</w:tcPr>", 1)
+                } else {
+                    [regex]::Replace($blk, '<w:tblPr\s*/>', "<w:tblPr/><w:tcPr>$firstColShd</w:tcPr>", 1)
+                }
+            }, 1)
+    } else {
+        # No firstCol conditional format present: add one.
+        $firstCol = '<w:tblStylePr w:type="firstCol"><w:tblPr/><w:tcPr>' + $firstColShd + '</w:tcPr></w:tblStylePr>'
+        $b = [regex]::Replace($b, '</w:style>', "$firstCol</w:style>", 1)
+    }
 
     return $b
 }
