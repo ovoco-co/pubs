@@ -127,7 +127,11 @@ $rebase = [ordered]@{
     'Versotext'                = 'xxbase'
     'Frontmatterhead1'         = 'xxheader'
     'Term-Abbrev'              = 'Frontmatterhead4'
-    'AppendixHead4'            = 'AppendixHead'
+    # AppendixHead 1-4 render exactly like Heading 1-4: base each on its match.
+    'AppendixHead'             = 'Heading1'
+    'AppendixHead2'            = 'Heading2'
+    'AppendixHead3'            = 'Heading3'
+    'AppendixHead4'            = 'Heading4'
     'Series'                   = 'xxheader'
     'Findings_'                = 'xxbase'
     'RecommendFindingData'     = 'xxbase'
@@ -640,6 +644,25 @@ foreach ($target in $targets) {
     }
     Write-Host "  Rebased: $rebaseHits style(s)" -ForegroundColor DarkGray
 
+    # AppendixHead 1-4 must render exactly like Heading 1-4. The rebase above
+    # points each at its matching Heading; now clear each appendix head's own
+    # paragraph and run formatting (spacing, font, size overrides) so nothing
+    # overrides the inherited look. Color is re-applied by the setColor pass
+    # just below, and numbering suppression (numId=0) is added afterward.
+    $appendixMatchStrip = {
+        param($block)
+        $b = [regex]::Replace($block, '(?s)<w:pPr>.*?</w:pPr>', '')
+        $b = [regex]::Replace($b, '<w:pPr\s*/>', '')
+        $b = [regex]::Replace($b, '(?s)<w:rPr>.*?</w:rPr>', '')
+        $b = [regex]::Replace($b, '<w:rPr\s*/>', '')
+        return $b
+    }
+    foreach ($ahId in @('AppendixHead','AppendixHead2','AppendixHead3','AppendixHead4')) {
+        $result = Edit-StyleBlock -Xml $xml -Id $ahId -Mutator $appendixMatchStrip
+        $xml = $result[0]
+        if ($result[1]) { Write-Host "  ${ahId}: cleared own formatting to inherit its Heading" -ForegroundColor DarkGray }
+    }
+
     # Apply color sets
     $colorHits = 0
     foreach ($id in $setColor.Keys) {
@@ -658,12 +681,11 @@ foreach ($target in $targets) {
     $xml = $h4[0]
     if ($h4[1]) { Write-Host "  Heading4: numbering removed" -ForegroundColor DarkGray }
 
-    # AppendixHead family: AppendixHead is basedOn Heading1 (which carries a
-    # chapter numId), so the inherited auto-number leaks into appendix titles.
-    # Install the explicit no-numbering marker <w:numPr><w:numId w:val="0"/></w:numPr>
-    # at the AppendixHead level; the rebased AppendixHead4 -> AppendixHead chain
-    # inherits the suppression. Apply to every level so the chain works whether
-    # or not the rebase pass succeeded.
+    # AppendixHead family: each is now basedOn its matching Heading (1-4), which
+    # can carry a chapter numId, so the inherited auto-number would leak into
+    # appendix titles. Install the explicit no-numbering marker
+    # <w:numPr><w:numId w:val="0"/></w:numPr> on every appendix level so the
+    # suppression holds regardless of which Heading it inherits from.
     # $SuppressNumbering is provided by the OoXml module.
     foreach ($ahId in @('AppendixHead','AppendixHead2','AppendixHead3','AppendixHead4',
                         'Appendix_Head','Appendix_Head2','Appendix_Head3','Appendix_Head4')) {
