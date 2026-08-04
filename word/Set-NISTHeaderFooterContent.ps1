@@ -237,10 +237,18 @@ foreach ($target in $targets) {
     foreach ($k in $toRemove) { [void]$entries.Remove($k) }
     Write-Host "  Removed $($toRemove.Count) existing header/footer part(s)." -ForegroundColor Gray
 
-    # 2. Strip their <Override> entries from [Content_Types].xml
+    # 2. Strip their <Override> entries from [Content_Types].xml.
+    #    Match by ContentType (header+xml / footer+xml), NOT by part name, so
+    #    this removes the original header#/footer# overrides AND any nist*
+    #    overrides a previous run added - which keeps the step idempotent.
+    #    Matching only header\d*/footer\d* names would leave the nist* overrides
+    #    in place and a re-run would append a second copy, producing duplicate
+    #    PartName entries that Word rejects as "unreadable content".
+    #    The ContentType value contains "/", so the attribute skip must be
+    #    [^>]* here - [^/]* stops at the first slash and matches nothing.
     $contentTypes = [regex]::Replace(
         $contentTypes,
-        '<Override\s+PartName="/word/(?:header|footer)\d*\.xml"[^/]*/>',
+        '<Override\b[^>]*ContentType="[^"]*wordprocessingml\.(?:header|footer)\+xml"[^>]*/>',
         ''
     )
 
