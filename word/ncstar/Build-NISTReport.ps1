@@ -300,6 +300,15 @@ function Strip-HeaderFooterRefs {
     return [regex]::Replace($SectPrXml, '<w:(headerReference|footerReference)[^/]*/>', '')
 }
 
+function Add-HeaderFooterRefs {
+    # Insert header/footer references as the FIRST children of the sectPr - where
+    # the OOXML schema requires them (before type/pgSz/...). Appending them before
+    # </w:sectPr> puts them after pgSz and Word rejects the file as unreadable.
+    param([string]$SectPrXml, [string]$Refs)
+    if (-not $SectPrXml -or -not $Refs) { return $SectPrXml }
+    return [regex]::Replace($SectPrXml, '(<w:sectPr\b[^>]*>)', "`$1$Refs", 1)
+}
+
 function Make-SectionBreakParagraph {
     # Wraps a sectPr inside an empty paragraph so it becomes an in-body section break.
     param([string]$SectPrXml)
@@ -677,9 +686,7 @@ foreach ($f in $followers) {
     #    sectPr (with host header/footer refs). Then append this chapter's inner.
     $sectForBreak = $prevTerminalSectPr
     $sectForBreak = Strip-HeaderFooterRefs -SectPrXml $sectForBreak
-    if ($hostHfRefs) {
-        $sectForBreak = $sectForBreak -replace '</w:sectPr>', "$hostHfRefs</w:sectPr>"
-    }
+    $sectForBreak = Add-HeaderFooterRefs -SectPrXml $sectForBreak -Refs $hostHfRefs
     $assembledBody += Make-SectionBreakParagraph -SectPrXml $sectForBreak
     $assembledBody += $inner
 
@@ -697,9 +704,7 @@ Write-Host "Stitching document.xml..." -ForegroundColor Yellow
 # Make sure its header/footer references match the host's.
 if ($prevTerminalSectPr) {
     $finalSect = Strip-HeaderFooterRefs -SectPrXml $prevTerminalSectPr
-    if ($hostHfRefs) {
-        $finalSect = $finalSect -replace '</w:sectPr>', "$hostHfRefs</w:sectPr>"
-    }
+    $finalSect = Add-HeaderFooterRefs -SectPrXml $finalSect -Refs $hostHfRefs
     $assembledBody += $finalSect
 }
 

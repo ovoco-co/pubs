@@ -232,6 +232,16 @@ function Strip-HeaderFooterRefs {
     return [regex]::Replace($SectPrXml, '<w:(headerReference|footerReference)[^/]*/>', '')
 }
 
+function Add-HeaderFooterRefs {
+    # Insert header/footer references as the FIRST children of the sectPr - where
+    # the OOXML schema requires them (headerReference*, footerReference* come
+    # before type/pgSz/...). Appending them before </w:sectPr> puts them after
+    # pgSz and Word rejects the file as "unreadable content".
+    param([string]$SectPrXml, [string]$Refs)
+    if (-not $SectPrXml -or -not $Refs) { return $SectPrXml }
+    return [regex]::Replace($SectPrXml, '(<w:sectPr\b[^>]*>)', "`$1$Refs", 1)
+}
+
 function Set-SectBreakType {
     param([string]$SectPrXml, [string]$Type)
     if (-not $SectPrXml -or -not $Type) { return $SectPrXml }
@@ -534,8 +544,8 @@ for ($fi = 1; $fi -lt $inputs.Count; $fi++) {
     #    the host's header/footer refs and the chosen break type.
     $sectForBreak = if ($prevTerminalSectPr) { $prevTerminalSectPr } else { '<w:sectPr></w:sectPr>' }
     $sectForBreak = Strip-HeaderFooterRefs -SectPrXml $sectForBreak
-    if ($hostHfRefs) { $sectForBreak = $sectForBreak -replace '</w:sectPr>', "$hostHfRefs</w:sectPr>" }
     $sectForBreak = Set-SectBreakType -SectPrXml $sectForBreak -Type $SectionBreak
+    $sectForBreak = Add-HeaderFooterRefs -SectPrXml $sectForBreak -Refs $hostHfRefs
     $assembledBody += Make-SectionBreakParagraph -SectPrXml $sectForBreak
     $assembledBody += $inner
 
@@ -550,8 +560,8 @@ Write-Host "Stitching document.xml..." -ForegroundColor Yellow
 
 if ($prevTerminalSectPr) {
     $finalSect = Strip-HeaderFooterRefs -SectPrXml $prevTerminalSectPr
-    if ($hostHfRefs) { $finalSect = $finalSect -replace '</w:sectPr>', "$hostHfRefs</w:sectPr>" }
     $finalSect = Set-SectBreakType -SectPrXml $finalSect -Type $SectionBreak
+    $finalSect = Add-HeaderFooterRefs -SectPrXml $finalSect -Refs $hostHfRefs
     $assembledBody += $finalSect
 }
 
