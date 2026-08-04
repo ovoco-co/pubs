@@ -278,10 +278,13 @@ $NIST_DATA_CANONICAL = '<w:style w:type="table" w:customStyle="1" w:styleId="NIS
 
 # Canonical Sidebar table style. A shaded callout box: whole-table light amber
 # fill (FFF2CC) via the style-level tcPr, thin gray borders, sans table text
-# (TableText). Fixed hex fill so it survives Import Styles. Installed fresh on
-# every run. Named "Sidebar Table" (styleId SidebarTable) so it does not collide
-# with the "Sidebar" paragraph style.
-$SIDEBAR_TABLE_CANONICAL = '<w:style w:type="table" w:customStyle="1" w:styleId="SidebarTable"><w:name w:val="Sidebar Table"/><w:basedOn w:val="TableNormal"/><w:uiPriority w:val="53"/><w:qFormat/><w:pPr><w:pStyle w:val="TableText"/></w:pPr><w:tblPr><w:tblBorders><w:top w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:left w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:bottom w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:right w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:insideH w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:insideV w:val="single" w:color="808080" w:sz="4" w:space="0"/></w:tblBorders><w:tblCellMar><w:top w:w="14" w:type="dxa"/><w:left w:w="29" w:type="dxa"/><w:bottom w:w="14" w:type="dxa"/><w:right w:w="29" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="FFF2CC"/></w:tcPr></w:style>'
+# (TableText), fixed 3" width (4325 twips) with fixed layout. Fixed hex fill so
+# it survives Import Styles. Installed fresh on every run. Named "Sidebar Table"
+# (styleId SidebarTable) so it does not collide with the "Sidebar" paragraph
+# style. The right-margin float / text-wrapping (tblpPr) cannot live in a table
+# style (the schema only allows it on the table instance), so Set-TableLook
+# stamps it onto every table that uses this style.
+$SIDEBAR_TABLE_CANONICAL = '<w:style w:type="table" w:customStyle="1" w:styleId="SidebarTable"><w:name w:val="Sidebar Table"/><w:basedOn w:val="TableNormal"/><w:uiPriority w:val="53"/><w:qFormat/><w:pPr><w:pStyle w:val="TableText"/></w:pPr><w:tblPr><w:tblW w:w="4325" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:left w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:bottom w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:right w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:insideH w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:insideV w:val="single" w:color="808080" w:sz="4" w:space="0"/></w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="14" w:type="dxa"/><w:left w:w="29" w:type="dxa"/><w:bottom w:w="14" w:type="dxa"/><w:right w:w="29" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="FFF2CC"/></w:tcPr></w:style>'
 
 # HM-Data: lock the lastRow yellow (drop themeFill so it cannot drift with theme),
 # set the firstCol shading to F2F2F2, and set default cell margins:

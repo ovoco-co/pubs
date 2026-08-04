@@ -95,7 +95,7 @@ Notes:
 | `Set-DocTitle.ps1` | Sets `<dc:title>` in docProps/core.xml. Works for any title string in any Word document. |
 | `Merge-WordDocuments.ps1` | Combines several Word files into one with a section break between each. Uses the first file as the host (theme, styles, headers), renumbers rIds/bookmarks/footnotes, copies and renames media, accepts revisions, and strips comments. Originals untouched. |
 | `Set-PageLayout.ps1` | Sets page margins with mirror margins. Configurable via -InnerInches, -OuterInches, -TopInches, -BottomInches, -HeaderInches, -FooterInches. |
-| `Set-TableLook.ps1` | Normalizes `<w:tblLook>` to formal report defaults (Header Row + Repeat Header + Banding) and adds `<w:tblHeader/>` to first rows. |
+| `Set-TableLook.ps1` | Normalizes `<w:tblLook>` to formal report defaults (Header Row + Repeat Header + Banding) and adds `<w:tblHeader/>` to first rows. Tables using the Sidebar Table style are instead floated as right-margin callout boxes (text wraps around, 3" wide, no repeat header) since the float can't live in a table style. |
 | `Set-ThemeColors.ps1` | Replaces the `<a:clrScheme>` in theme1.xml with a caller-supplied color scheme XML block. Validates all 12 theme slots are present. |
 | `Install-ThemeColors.ps1` | Installs a theme color scheme file into the user's Word Theme Colors folder so Design > Colors displays it by name. |
 | `Audit-StyleSet.ps1` | Generic style audit engine. Checks that caller-supplied required style ids exist in styles.xml. Returns non-zero on drift. JSON or table output. |
