@@ -722,13 +722,35 @@ foreach ($target in $targets) {
     }
     Write-Host "  Color set on: $colorHits style(s)" -ForegroundColor DarkGray
 
-    # Heading4: strip numbering (no auto-number)
-    $h4 = Edit-StyleBlock -Xml $xml -Id 'Heading4' -Mutator { param($block)
-        # Remove the entire <w:numPr>...</w:numPr> block from this style
-        return [regex]::Replace($block, '(?s)<w:numPr>.*?</w:numPr>', '')
+    # Heading4: include in the heading numbering at level 4 (ilvl=3), using the
+    # same numId Heading 1-3 use, so it renders "1.2.3.4". For an UNnumbered
+    # level-4 heading use the separate "Heading 4 Sub-Head" style, which is left
+    # alone. The heading list already defines ilvl=3 as "%1.%2.%3.%4.".
+    $h3block = [regex]::Match($xml, '(?s)<w:style\b[^>]*w:styleId="Heading3"[^>]*>.*?</w:style>').Value
+    $hnid = ([regex]::Match($h3block, '<w:numId\s+w:val="(\d+)"')).Groups[1].Value
+    if (-not $hnid) {
+        $h1block = [regex]::Match($xml, '(?s)<w:style\b[^>]*w:styleId="Heading1"[^>]*>.*?</w:style>').Value
+        $hnid = ([regex]::Match($h1block, '<w:numId\s+w:val="(\d+)"')).Groups[1].Value
     }
-    $xml = $h4[0]
-    if ($h4[1]) { Write-Host "  Heading4: numbering removed" -ForegroundColor DarkGray }
+    if ($hnid) {
+        $h4np = '<w:numPr><w:ilvl w:val="3"/><w:numId w:val="' + $hnid + '"/></w:numPr>'
+        $h4mut = {
+            param($block)
+            # numPr goes after keepNext/keepLines and before spacing/outlineLvl (schema order).
+            if ($block -match '(?s)<w:numPr>.*?</w:numPr>') { return [regex]::Replace($block, '(?s)<w:numPr>.*?</w:numPr>', $h4np, 1) }
+            if ($block -match '<w:spacing\b')    { return [regex]::Replace($block, '(<w:spacing\b)', "$h4np`$1", 1) }
+            if ($block -match '<w:outlineLvl\b') { return [regex]::Replace($block, '(<w:outlineLvl\b)', "$h4np`$1", 1) }
+            if ($block -match '</w:pPr>')        { return [regex]::Replace($block, '</w:pPr>', "$h4np</w:pPr>", 1) }
+            if ($block -match '<w:pPr\s*/>')     { return [regex]::Replace($block, '<w:pPr\s*/>', "<w:pPr>$h4np</w:pPr>", 1) }
+            if ($block -match '<w:basedOn\s+w:val="[^"]*"\s*/>') { return [regex]::Replace($block, '(<w:basedOn\s+w:val="[^"]*"\s*/>)', "`$1<w:pPr>$h4np</w:pPr>", 1) }
+            return [regex]::Replace($block, '</w:style>', "<w:pPr>$h4np</w:pPr></w:style>", 1)
+        }.GetNewClosure()
+        $h4 = Edit-StyleBlock -Xml $xml -Id 'Heading4' -Mutator $h4mut
+        $xml = $h4[0]
+        if ($h4[1]) { Write-Host "  Heading4: numbered at level 4 (ilvl=3, numId=$hnid)" -ForegroundColor DarkGray }
+    } else {
+        Write-Warning "  Heading4: heading numId not found; numbering left as-is."
+    }
 
     # AppendixHead and Frontmatterhead families: each is now basedOn its matching
     # Heading (1-4), and Heading 1-3 carry a chapter numId, so the inherited
