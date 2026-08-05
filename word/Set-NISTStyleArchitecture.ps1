@@ -378,10 +378,10 @@ $xxtableEdit = {
     return $b
 }
 
-# TableText: line spacing multiple 0.9 + space-after 4pt (80 twips).
+# TableText: line spacing multiple 0.9 + space-after 2pt (40 twips).
 $tableTextSpacingEdit = {
     param($block)
-    $newSpacing = 'w:after="80" w:line="216" w:lineRule="auto"'
+    $newSpacing = 'w:after="40" w:line="216" w:lineRule="auto"'
     if ($block -match '<w:spacing\b[^/]*?/>') {
         return [regex]::Replace($block,
             '<w:spacing\b([^/]*?)/>',
@@ -801,10 +801,10 @@ foreach ($target in $targets) {
     $xml = $xt[0]
     if ($xt[1]) { Write-Host "  xxtable: 9pt, 1pt before/after, line 0.9" -ForegroundColor DarkGray }
 
-    # TableText: line spacing multiple 0.9 + space-after 4pt
+    # TableText: line spacing multiple 0.9 + space-after 2pt
     $ts = Edit-StyleBlock -Xml $xml -Id 'TableText' -Mutator $tableTextSpacingEdit
     $xml = $ts[0]
-    if ($ts[1]) { Write-Host "  TableText: line spacing multiple 0.9 + space-after 4pt" -ForegroundColor DarkGray }
+    if ($ts[1]) { Write-Host "  TableText: line spacing multiple 0.9 + space-after 2pt" -ForegroundColor DarkGray }
 
     # List Bullet and List Number ladders share a hanging-indent pattern: text
     # at Left, marker at (Left - Hanging), each level stepping 0.2" (288 twips)
