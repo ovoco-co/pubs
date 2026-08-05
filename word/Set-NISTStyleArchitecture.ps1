@@ -416,6 +416,10 @@ $tableTextSpacingEdit = {
                 $attrs = [regex]::Replace($attrs, '\s*w:line="[^"]*"', '')
                 $attrs = [regex]::Replace($attrs, '\s*w:lineRule="[^"]*"', '')
                 $attrs = [regex]::Replace($attrs, '\s*w:after="[^"]*"', '')
+                # Drop the "Auto" spacing flags - afterAutospacing="1" would
+                # override the explicit w:after and show as Auto after, not 2pt.
+                $attrs = [regex]::Replace($attrs, '\s*w:afterAutospacing="[^"]*"', '')
+                $attrs = [regex]::Replace($attrs, '\s*w:beforeAutospacing="[^"]*"', '')
                 "<w:spacing$attrs $newSpacing/>"
             }, 1)
     }
