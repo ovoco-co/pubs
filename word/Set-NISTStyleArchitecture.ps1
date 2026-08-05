@@ -857,24 +857,19 @@ foreach ($target in $targets) {
     $xml = $ts[0]
     if ($ts[1]) { Write-Host "  TableText: line spacing multiple 0.9 + space-after 2pt" -ForegroundColor DarkGray }
 
-    # _graphic: keep-with-next so a figure stays with its caption (never orphaned
-    # at a page break). Ensures <w:keepNext/> is present; idempotent.
-    $keepNextEdit = {
+    # _graphic: remove keep-with-next and keep-lines-together, and drop the
+    # basedOn (was BodyText) so the style stands on its own. Its keep chain was
+    # carried by its own elements, so stripping them turns both off.
+    $graphicEdit = {
         param($block)
-        if ($block -match '<w:keepNext\b') { return $block }
-        if ($block -match '<w:pPr>') {
-            return [regex]::Replace($block, '<w:pPr>', '<w:pPr><w:keepNext/>', 1)
-        } elseif ($block -match '<w:pPr\s*/>') {
-            return [regex]::Replace($block, '<w:pPr\s*/>', '<w:pPr><w:keepNext/></w:pPr>', 1)
-        } elseif ($block -match '<w:basedOn\s+w:val="[^"]*"\s*/>') {
-            return [regex]::Replace($block, '(<w:basedOn\s+w:val="[^"]*"\s*/>)', '$1<w:pPr><w:keepNext/></w:pPr>', 1)
-        } else {
-            return [regex]::Replace($block, '</w:style>', '<w:pPr><w:keepNext/></w:pPr></w:style>', 1)
-        }
+        $b = [regex]::Replace($block, '<w:keepNext\b[^>]*/>', '')
+        $b = [regex]::Replace($b, '<w:keepLines\b[^>]*/>', '')
+        $b = [regex]::Replace($b, '<w:basedOn\b[^>]*/>', '')
+        return $b
     }
-    $gk = Edit-StyleBlock -Xml $xml -Id 'graphic' -Mutator $keepNextEdit
+    $gk = Edit-StyleBlock -Xml $xml -Id 'graphic' -Mutator $graphicEdit
     $xml = $gk[0]
-    if ($gk[1]) { Write-Host "  _graphic: keep-with-next ensured" -ForegroundColor DarkGray }
+    if ($gk[1]) { Write-Host "  _graphic: keep-next/keep-lines removed, basedOn dropped" -ForegroundColor DarkGray }
 
     # Sidebar / Sidebar Bullet: drop the floating text frame (framePr) and its
     # suppressOverlap. The sidebar callout floats via the Sidebar Table style
