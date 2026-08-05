@@ -305,7 +305,12 @@ function Accept-Revisions {
     $x = [regex]::Replace($x, '(?s)<w:del\b[^>]*>.*?</w:del>', '')
     $x = [regex]::Replace($x, '(?s)<w:ins\b[^>]*>(.*?)</w:ins>', '$1')
     foreach ($tag in 'rPrChange','pPrChange','sectPrChange','tblPrChange','tcPrChange','trPrChange','tblGridChange','cellIns','cellDel','cellMerge') {
-        $x = [regex]::Replace($x, "(?s)<w:$tag\b[^/]*?/>", '')
+        # [^>]* not [^/]*: a change block like <w:rPrChange ...><w:rPr>...</w:rPr>
+        # </w:rPrChange> is not self-closing, but [^/]*?/> would match from its
+        # open tag through the first nested self-closing element (e.g. an inner
+        # <w:vertAlign/>), tearing the block apart. [^>]*?/> only matches a
+        # genuinely self-closing tag (cellIns/cellDel/cellMerge).
+        $x = [regex]::Replace($x, "(?s)<w:$tag\b[^>]*?/>", '')
         $x = [regex]::Replace($x, "(?s)<w:$tag\b[^>]*>.*?</w:$tag>", '')
     }
     return $x
