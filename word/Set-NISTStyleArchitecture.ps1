@@ -220,6 +220,12 @@ $setColor = [ordered]@{
     'Quote'          = '404040'
     'QuoteChar'      = '404040'
     'AppendixHead4'  = '00257A'
+    # Front matter heads match the Heading font/size/spacing but stay BLACK
+    # (per request) rather than inheriting the Resolution Blue.
+    'Frontmatterhead1' = '000000'
+    'Frontmatterhead2' = '000000'
+    'Frontmatterhead3' = '000000'
+    'Frontmatterhead4' = '000000'
 }
 
 # NIST palette reference (documentation only). The style colors above are
