@@ -871,6 +871,28 @@ foreach ($target in $targets) {
     $xml = $gk[0]
     if ($gk[1]) { Write-Host "  _graphic: keep-next/keep-lines removed, basedOn dropped" -ForegroundColor DarkGray }
 
+    # Table of Figures: match TOC 1's paragraph spacing so the two lists read the
+    # same. Both inherit line 0.85 from xxheader; TOC 1 tightens before/after to
+    # 100 while Table of Figures otherwise inherits xxheader's 200. Copy TOC 1's
+    # spacing element verbatim (resolved at run time) so they stay in agreement.
+    $toc1sp = ([regex]::Match(
+        [regex]::Match($xml, '(?s)<w:style\b[^>]*w:styleId="TOC1"[^>]*>.*?</w:style>').Value,
+        '<w:spacing\b[^/]*/>')).Value
+    if ($toc1sp) {
+        $tofMut = {
+            param($block)
+            if ($block -match '<w:spacing\b[^/]*/>') { return [regex]::Replace($block, '<w:spacing\b[^/]*/>', $toc1sp, 1) }
+            if ($block -match '<w:ind\b')            { return [regex]::Replace($block, '(<w:ind\b)', "$toc1sp`$1", 1) }
+            if ($block -match '</w:pPr>')            { return [regex]::Replace($block, '</w:pPr>', "$toc1sp</w:pPr>", 1) }
+            if ($block -match '<w:pPr\s*/>')         { return [regex]::Replace($block, '<w:pPr\s*/>', "<w:pPr>$toc1sp</w:pPr>", 1) }
+            if ($block -match '<w:basedOn\s+w:val="[^"]*"\s*/>') { return [regex]::Replace($block, '(<w:basedOn\s+w:val="[^"]*"\s*/>)', "`$1<w:pPr>$toc1sp</w:pPr>", 1) }
+            return [regex]::Replace($block, '</w:style>', "<w:pPr>$toc1sp</w:pPr></w:style>", 1)
+        }.GetNewClosure()
+        $tof = Edit-StyleBlock -Xml $xml -Id 'TableofFigures' -Mutator $tofMut
+        $xml = $tof[0]
+        if ($tof[1]) { Write-Host "  Table of Figures: spacing matched to TOC 1" -ForegroundColor DarkGray }
+    }
+
     # Sidebar / Sidebar Bullet: drop the floating text frame (framePr) and its
     # suppressOverlap. The sidebar callout floats via the Sidebar Table style
     # now, so the paragraph text should be plain, not its own floating frame.
