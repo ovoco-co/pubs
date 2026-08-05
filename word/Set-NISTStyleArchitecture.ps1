@@ -832,45 +832,42 @@ foreach ($target in $targets) {
     if ($ts[1]) { Write-Host "  TableText: line spacing multiple 0.9 + space-after 2pt" -ForegroundColor DarkGray }
 
     # List, List Bullet, List Continue, and List Number share ONE ladder so they
-    # line up: at each level the text sits at Left (792/1080/1368/1656/1944
-    # twips), stepping 0.2" (288 twips) further right per level. The bullet /
-    # number families hang the marker 0.3" (432 twips) to the left of the text;
-    # the plain List and List Continue have no marker (Hanging=0) but the same
-    # Left, so everything aligns to the same columns.
+    # line up. The bullet/number marker steps 0.2" per level (0.25/0.45/0.65/
+    # 0.85/1.05"); the text sits 0.19" (274 twips) to its right (hanging=274) so
+    # the text hugs the marker instead of drifting 0.3" away. Plain List and List
+    # Continue have no marker (Hanging=0) but sit at the same text column.
+    #   Left (text) = marker + 274; Left column = 634/922/1210/1498/1786.
     $listIndents = [ordered]@{
-        # Level 1 marker at 0.25", text at 0.55".
-        'ListBullet'  = @{ Left = 792;  Hanging = 432 }   # marker 0.25", text 0.55"
-        'ListBullet2' = @{ Left = 1080; Hanging = 432 }   # marker 0.45", text 0.75"
-        'ListBullet3' = @{ Left = 1368; Hanging = 432 }   # marker 0.65", text 0.95"
-        'ListBullet4' = @{ Left = 1656; Hanging = 432 }   # marker 0.85", text 1.15"
-        'ListBullet5' = @{ Left = 1944; Hanging = 432 }   # marker 1.05", text 1.35"
-        'ListNumber'  = @{ Left = 792;  Hanging = 432 }
-        'ListNumber2' = @{ Left = 1080; Hanging = 432 }
-        'ListNumber3' = @{ Left = 1368; Hanging = 432 }
-        'ListNumber4' = @{ Left = 1656; Hanging = 432 }
-        'ListNumber5' = @{ Left = 1944; Hanging = 432 }
+        # Level 1 marker at 0.25", text at 0.44".
+        'ListBullet'  = @{ Left = 634;  Hanging = 274 }   # marker 0.25", text 0.44"
+        'ListBullet2' = @{ Left = 922;  Hanging = 274 }   # marker 0.45", text 0.64"
+        'ListBullet3' = @{ Left = 1210; Hanging = 274 }   # marker 0.65", text 0.84"
+        'ListBullet4' = @{ Left = 1498; Hanging = 274 }   # marker 0.85", text 1.04"
+        'ListBullet5' = @{ Left = 1786; Hanging = 274 }   # marker 1.05", text 1.24"
+        'ListNumber'  = @{ Left = 634;  Hanging = 274 }
+        'ListNumber2' = @{ Left = 922;  Hanging = 274 }
+        'ListNumber3' = @{ Left = 1210; Hanging = 274 }
+        'ListNumber4' = @{ Left = 1498; Hanging = 274 }
+        'ListNumber5' = @{ Left = 1786; Hanging = 274 }
         # List Continue: continuation paragraphs (no marker), text aligned to
         # the same column as the matching bullet/number level. Hanging=0.
-        'ListContinue'  = @{ Left = 792;  Hanging = 0 }
-        'ListContinue2' = @{ Left = 1080; Hanging = 0 }
-        'ListContinue3' = @{ Left = 1368; Hanging = 0 }
-        'ListContinue4' = @{ Left = 1656; Hanging = 0 }
-        'ListContinue5' = @{ Left = 1944; Hanging = 0 }
+        'ListContinue'  = @{ Left = 634;  Hanging = 0 }
+        'ListContinue2' = @{ Left = 922;  Hanging = 0 }
+        'ListContinue3' = @{ Left = 1210; Hanging = 0 }
+        'ListContinue4' = @{ Left = 1498; Hanging = 0 }
+        'ListContinue5' = @{ Left = 1786; Hanging = 0 }
         # List: plain indented list paragraph (no marker, no hanging).
-        'List'  = @{ Left = 792;  Hanging = 0 }
-        'List2' = @{ Left = 1080; Hanging = 0 }
-        'List3' = @{ Left = 1368; Hanging = 0 }
-        'List4' = @{ Left = 1656; Hanging = 0 }
-        'List5' = @{ Left = 1944; Hanging = 0 }
+        'List'  = @{ Left = 634;  Hanging = 0 }
+        'List2' = @{ Left = 922;  Hanging = 0 }
+        'List3' = @{ Left = 1210; Hanging = 0 }
+        'List4' = @{ Left = 1498; Hanging = 0 }
+        'List5' = @{ Left = 1786; Hanging = 0 }
         # List Paragraph: applied by the ribbon's bullet/number buttons.
         # Same level-1 layout as ListBullet so single-level ribbon use matches.
-        'ListParagraph' = @{ Left = 792; Hanging = 432 }
-        # Table Bullet: bullets inside tables/sidebars. Same 0.3" (432 twips)
-        # bullet-to-text hanging as List Bullet so the glyph has proper room
-        # (not scrunched), but shifted tight into the cell: marker ~0.11" in from
-        # the cell edge, text at 0.41" (vs List Bullet's marker 0.25" / text
-        # 0.55").
-        'TableBullet'   = @{ Left = 590; Hanging = 432 }   # marker 0.11", text 0.41", gap 0.30"
+        'ListParagraph' = @{ Left = 634; Hanging = 274 }
+        # Table Bullet: bullets inside tables/sidebars. Bullet 0.1" in from the
+        # cell edge, gap 0.13" to the text (text at 0.23"). Tight for a cell.
+        'TableBullet'   = @{ Left = 331; Hanging = 187 }   # marker 0.1", text 0.23", gap 0.13"
     }
 
     # Per-style bullet glyph overrides. If a style appears here, the numbering
