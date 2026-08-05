@@ -831,6 +831,25 @@ foreach ($target in $targets) {
     $xml = $ts[0]
     if ($ts[1]) { Write-Host "  TableText: line spacing multiple 0.9 + space-after 2pt" -ForegroundColor DarkGray }
 
+    # _graphic: keep-with-next so a figure stays with its caption (never orphaned
+    # at a page break). Ensures <w:keepNext/> is present; idempotent.
+    $keepNextEdit = {
+        param($block)
+        if ($block -match '<w:keepNext\b') { return $block }
+        if ($block -match '<w:pPr>') {
+            return [regex]::Replace($block, '<w:pPr>', '<w:pPr><w:keepNext/>', 1)
+        } elseif ($block -match '<w:pPr\s*/>') {
+            return [regex]::Replace($block, '<w:pPr\s*/>', '<w:pPr><w:keepNext/></w:pPr>', 1)
+        } elseif ($block -match '<w:basedOn\s+w:val="[^"]*"\s*/>') {
+            return [regex]::Replace($block, '(<w:basedOn\s+w:val="[^"]*"\s*/>)', '$1<w:pPr><w:keepNext/></w:pPr>', 1)
+        } else {
+            return [regex]::Replace($block, '</w:style>', '<w:pPr><w:keepNext/></w:pPr></w:style>', 1)
+        }
+    }
+    $gk = Edit-StyleBlock -Xml $xml -Id 'graphic' -Mutator $keepNextEdit
+    $xml = $gk[0]
+    if ($gk[1]) { Write-Host "  _graphic: keep-with-next ensured" -ForegroundColor DarkGray }
+
     # List, List Bullet, List Continue, and List Number share ONE ladder so they
     # line up. The bullet/number marker steps 0.2" per level (0.25/0.45/0.65/
     # 0.85/1.05"); the text sits 0.19" (274 twips) to its right (hanging=274) so
