@@ -170,6 +170,24 @@ if ((Test-Path -LiteralPath $outputPath) -and -not $Force) {
     if ($reply -notmatch '^[yY]') { throw "Aborted." }
 }
 
+# Fail fast if the output cannot be written - before doing all the merge work.
+# The common causes are the file being open in Word, or held by OneDrive sync,
+# antivirus, or the Explorer preview pane.
+if (Test-Path -LiteralPath $outputPath) {
+    $existing = Get-Item -LiteralPath $outputPath -Force
+    if ($existing.IsReadOnly) { try { $existing.IsReadOnly = $false } catch { } }
+    try {
+        $probe = [System.IO.File]::Open($outputPath, 'Open', 'ReadWrite', 'None')
+        $probe.Close(); $probe.Dispose()
+    } catch {
+        throw ("Cannot write the output file:`n  $outputPath`n" +
+               "It looks locked or read-only - most likely open in Word, or held by " +
+               "OneDrive sync, antivirus, or the Explorer preview pane. Close it (or " +
+               "pass a different -Output, ideally outside any OneDrive folder) and re-run.`n" +
+               "Underlying error: $($_.Exception.Message)")
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Content types for media extensions (used when a follower brings a new one)
 # ---------------------------------------------------------------------------
@@ -675,6 +693,19 @@ try {
     } finally { $outZip.Dispose() }
 } finally { $outStream.Dispose() }
 
+# Robust overwrite: clear a read-only attribute and remove the old file first,
+# with a clear message if it is locked, so we never fail with a raw error.
+if (Test-Path -LiteralPath $outputPath) {
+    $dest = Get-Item -LiteralPath $outputPath -Force
+    if ($dest.IsReadOnly) { try { $dest.IsReadOnly = $false } catch { } }
+    try {
+        Remove-Item -LiteralPath $outputPath -Force
+    } catch {
+        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        throw ("Could not overwrite the output file:`n  $outputPath`n" +
+               "It is locked - close it in Word (and pause OneDrive if the folder is synced) and re-run.")
+    }
+}
 Move-Item -LiteralPath $tempPath -Destination $outputPath -Force
 
 Write-Host ""
