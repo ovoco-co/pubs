@@ -988,7 +988,7 @@ foreach ($target in $targets) {
         }
         if ($s.Type -eq 'character') { $hideList += $s.Id; continue }
         if ($s.Type -eq 'table') {
-            if ($s.Id -in @('HM-Cover','HM-Data','NIST-Data')) { $recList += $s } else { $hideList += $s.Id }
+            if ($s.Id -in @('HM-Cover','HM-Data','NIST-Data','SidebarTable')) { $recList += $s } else { $hideList += $s.Id }
             continue
         }
         # paragraph
