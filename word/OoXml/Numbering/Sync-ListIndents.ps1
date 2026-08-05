@@ -6,8 +6,10 @@ function Sync-ListIndents {
     .DESCRIPTION
         For each style in IndentMap that has a numId in styles.xml, resolves the
         linked abstractNumId in numbering.xml and rewrites the w:ind element in
-        ilvl=0 to match the style's indent values. This keeps the abstractNum
-        and style indent in agreement so Word renders consistently.
+        ilvl=0 to match the style's indent values, and moves the level's "num"
+        tab stop to the same text position (Left). This keeps the abstractNum
+        indent AND its tab stop in agreement with the style so the first line's
+        text lines up with the wrapped lines and Word renders consistently.
 
         Only processes styles with a Hanging value greater than 0 (bullet/number
         styles with a hanging indent marker).
@@ -44,6 +46,11 @@ function Sync-ListIndents {
         if (-not $abMatch.Success) { continue }
         $abBlock = $abMatch.Value
         $newInd = "<w:ind w:left=`"$left`" w:hanging=`"$hang`"/>"
+        # The numbering "num" tab stop is where the first line's text lands after
+        # the bullet/number, so it must sit at the text position (Left). Rebuilt
+        # to <w:tab w:val="num" w:pos="Left"/>; if it is left at the old pos the
+        # first line does not line up with the wrapped lines or the new indent.
+        $numTab = '<w:tab w:val="num" w:pos="' + $left + '"/>'
         $lvlEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
             param($m)
             $head = $m.Groups[1].Value; $body = $m.Groups[2].Value; $tail = $m.Groups[3].Value
@@ -55,6 +62,10 @@ function Sync-ListIndents {
                 $body = [regex]::Replace($body, '<w:pPr\s*/>', "<w:pPr>$newInd</w:pPr>", 1)
             } else {
                 $body = $body + "<w:pPr>$newInd</w:pPr>"
+            }
+            # Move the "num" tab stop to match the text position.
+            if ($body -match '<w:tab\b[^>]*?w:val="num"[^>]*?/>') {
+                $body = [regex]::Replace($body, '<w:tab\b[^>]*?w:val="num"[^>]*?/>', $numTab)
             }
             return $head + $body + $tail
         }.GetNewClosure()
