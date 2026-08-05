@@ -831,15 +831,15 @@ foreach ($target in $targets) {
     $xml = $ts[0]
     if ($ts[1]) { Write-Host "  TableText: line spacing multiple 0.9 + space-after 2pt" -ForegroundColor DarkGray }
 
-    # List Bullet and List Number ladders share a hanging-indent pattern: text
-    # at Left, marker at (Left - Hanging), each level stepping 0.2" (288 twips)
-    # further right. ListBullet level 1 is the exception - a tighter left 0.25"
-    # / hanging 0.2" / right 0 per request.
+    # List, List Bullet, List Continue, and List Number share ONE ladder so they
+    # line up: at each level the text sits at Left (792/1080/1368/1656/1944
+    # twips), stepping 0.2" (288 twips) further right per level. The bullet /
+    # number families hang the marker 0.3" (432 twips) to the left of the text;
+    # the plain List and List Continue have no marker (Hanging=0) but the same
+    # Left, so everything aligns to the same columns.
     $listIndents = [ordered]@{
-        # ListBullet L1: marker 0.05", text 0.25", right 0. The rest of the
-        # ladder keeps marker at 0.25", text at 0.55" (hanging slot 0.3" = 432
-        # twips), stepping 0.2" (288 twips) further right per level.
-        'ListBullet'  = @{ Left = 360;  Hanging = 288; Right = 0 }   # marker 0.05", text 0.25", right 0
+        # Level 1 marker at 0.25", text at 0.55".
+        'ListBullet'  = @{ Left = 792;  Hanging = 432 }   # marker 0.25", text 0.55"
         'ListBullet2' = @{ Left = 1080; Hanging = 432 }   # marker 0.45", text 0.75"
         'ListBullet3' = @{ Left = 1368; Hanging = 432 }   # marker 0.65", text 0.95"
         'ListBullet4' = @{ Left = 1656; Hanging = 432 }   # marker 0.85", text 1.15"
