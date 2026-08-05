@@ -876,6 +876,21 @@ foreach ($target in $targets) {
     $xml = $gk[0]
     if ($gk[1]) { Write-Host "  _graphic: keep-with-next ensured" -ForegroundColor DarkGray }
 
+    # Sidebar / Sidebar Bullet: drop the floating text frame (framePr) and its
+    # suppressOverlap. The sidebar callout floats via the Sidebar Table style
+    # now, so the paragraph text should be plain, not its own floating frame.
+    $stripFrameEdit = {
+        param($block)
+        $b = [regex]::Replace($block, '<w:framePr\b[^>]*/>', '')
+        $b = [regex]::Replace($b, '<w:suppressOverlap\s*/>', '')
+        return $b
+    }
+    foreach ($sid in @('Sidebar','SidebarBullet')) {
+        $sf = Edit-StyleBlock -Xml $xml -Id $sid -Mutator $stripFrameEdit
+        $xml = $sf[0]
+        if ($sf[1]) { Write-Host "  ${sid}: floating frame removed" -ForegroundColor DarkGray }
+    }
+
     # List, List Bullet, List Continue, and List Number share ONE ladder so they
     # line up. The bullet/number marker steps 0.2" per level (0.20/0.40/0.60/
     # 0.80/1.00"); the text sits 0.15" (216 twips) to its right (hanging=216).
