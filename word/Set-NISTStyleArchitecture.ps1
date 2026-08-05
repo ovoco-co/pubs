@@ -293,7 +293,8 @@ $NIST_DATA_CANONICAL = '<w:style w:type="table" w:customStyle="1" w:styleId="NIS
 $SIDEBAR_TABLE_CANONICAL = '<w:style w:type="table" w:customStyle="1" w:styleId="SidebarTable"><w:name w:val="Sidebar Table"/><w:basedOn w:val="TableNormal"/><w:uiPriority w:val="53"/><w:qFormat/><w:pPr><w:pStyle w:val="TableText"/></w:pPr><w:tblPr><w:tblW w:w="4325" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:left w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:bottom w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:right w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:insideH w:val="single" w:color="808080" w:sz="4" w:space="0"/><w:insideV w:val="single" w:color="808080" w:sz="4" w:space="0"/></w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="14" w:type="dxa"/><w:left w:w="29" w:type="dxa"/><w:bottom w:w="14" w:type="dxa"/><w:right w:w="29" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="FFF2CC"/></w:tcPr></w:style>'
 
 # HM-Data: lock the lastRow yellow (drop themeFill so it cannot drift with theme),
-# set the firstCol shading to F2F2F2, and set default cell margins:
+# set the firstCol shading to F2F2F2, unify every rule/gridline to hard-coded
+# A6A6A6, and set default cell margins:
 # top=0, bottom=0, left=29 twips (0.02"), right=29 twips (0.02").
 $hmDataEdit = {
     param($block)
@@ -346,6 +347,24 @@ $hmDataEdit = {
         $firstCol = '<w:tblStylePr w:type="firstCol"><w:tblPr/><w:tcPr>' + $firstColShd + '</w:tcPr></w:tblStylePr>'
         $b = [regex]::Replace($b, '</w:style>', "$firstCol</w:style>", 1)
     }
+
+    # All rules the same color: unify every table border (the faint whole-table
+    # grid and the banding / header / column rules) to a single hard-coded
+    # A6A6A6, and drop themeColor/themeShade so the rule color cannot drift on
+    # Import Styles. Only border elements are touched - they carry
+    # w:val="single" + w:color; the cell-margin <w:top>/<w:left> carry w:w and
+    # are left alone.
+    $b = [regex]::Replace($b,
+        '<w:(top|left|bottom|right|insideH|insideV)\b[^>]*?w:color="(?:[0-9A-Fa-f]{6}|auto)"[^>]*?/>',
+        {
+            param($m)
+            $el = $m.Value
+            $el = [regex]::Replace($el, 'w:color="(?:[0-9A-Fa-f]{6}|auto)"', 'w:color="A6A6A6"')
+            $el = [regex]::Replace($el, '\s*w:themeColor="[^"]*"', '')
+            $el = [regex]::Replace($el, '\s*w:themeShade="[^"]*"', '')
+            $el = [regex]::Replace($el, '\s*w:themeTint="[^"]*"', '')
+            $el
+        })
 
     return $b
 }
