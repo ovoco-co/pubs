@@ -865,8 +865,11 @@ foreach ($target in $targets) {
         # List Paragraph: applied by the ribbon's bullet/number buttons.
         # Same level-1 layout as ListBullet so single-level ribbon use matches.
         'ListParagraph' = @{ Left = 792; Hanging = 432 }
-        # Table Bullet: tight indent for bullets inside tables/sidebars.
-        'TableBullet'   = @{ Left = 173; Hanging = 216 }   # left 0.12", hanging 0.15"
+        # Table Bullet: tight indent for bullets inside tables/sidebars. Text at
+        # 0.11", marker slightly in from the cell edge (~0.03"), so it is not
+        # flush against the cell wall. Kept separate from the body list ladder
+        # (too wide for a table cell).
+        'TableBullet'   = @{ Left = 158; Hanging = 115 }   # text 0.11", marker ~0.03"
     }
 
     # Per-style bullet glyph overrides. If a style appears here, the numbering
