@@ -68,10 +68,21 @@ Notes:
 | Script | What it does |
 |--------|-------------|
 | `Set-NISTTheme.ps1` | Thin wrapper: passes the NIST NCSTAR palette to `Set-ThemeColors.ps1`. |
-| `Set-NISTStyleArchitecture.ps1` | Imports `OoXml/OoXml.psd1` and applies NIST style config. Rebases Heading1-9, BodyText, Caption, List Bullet/Number onto `xx*`, and AppendixHead 1-4 and Front_matter_head 1-4 onto Heading 1-4 (numbering suppressed) so appendix and front-matter titles match the headings. Deletes junk styles. Sets style colors as fixed hex (headings Resolution Blue `#00257A`; Heading 5 neutral gray `#404040`). Sets the bullet-glyph ladder, the List Bullet indent (left 0.25" / hanging 0.2" / right 0), and the HM-Data table's first-column shading (`#F2F2F2`). Manages the Sidebar / Sidebar Bullet callout paragraph styles and installs a Sidebar Table style (whole-table amber `#FFF2CC` fill). |
+| `Set-NISTStyleArchitecture.ps1` | Imports `OoXml/OoXml.psd1` and rebuilds the NIST style set in `styles.xml` and `numbering.xml`: rebases styles onto the `xx*` engine, fixes basedOn, deletes junk styles, sets fixed-hex colors, and configures the headings, lists, and table styles. See "What Set-NISTStyleArchitecture configures" below for the specifics. |
 | `Set-NISTHeaderFooterContent.ps1` | Installs even/odd/first header and footer parts with STYLEREF chapter number/title and TITLE+PAGE fields. Chapter first pages get a TITLE+PAGE footer; pass `-FrontMatter` to leave the front-matter first-page footer blank. |
 | `Install-NISTThemeColors.ps1` | Thin wrapper: installs the NIST palette into the user's Word Theme Colors folder. Per-user; does not touch documents. |
 | `Audit-NISTStyleSet.ps1` | Thin wrapper: passes the required/optional NIST style ids to `Audit-StyleSet.ps1`. Pre-assembly gate for `ncstar/Build-NISTReport.ps1`. |
+
+#### What Set-NISTStyleArchitecture configures
+
+All colors are written as fixed hex (no theme link) so they survive Word's Import Styles.
+
+- **Rebasing** - Heading1-9, BodyText, Caption, and the List Bullet/Number family are rebased onto the `xx*` engine styles to break Normal inheritance. Junk styles are deleted; a table-style allowlist keeps only `TableNormal`, `TableGrid`, `HM-Cover`, `HM-Data`, `NIST-Data`, and `SidebarTable`.
+- **Headings** - Heading 1-4 and 6-9 are Resolution Blue `#00257A`; **Heading 5** is neutral gray `#404040`. **Heading 4 is numbered** as part of the heading list (renders `1.2.3.4`); use the separate **Heading 4 Sub-Head** style for an unnumbered level-4 heading.
+- **Appendix / front-matter heads** - AppendixHead 1-4 and Front_matter_head 1-4 inherit their matching Heading's font/size/spacing but are **unnumbered** (`numId=0`). Front-matter heads are forced **black**, not the heading blue.
+- **Lists** - List, List Bullet, List Continue, and List Number share one ladder that lines up: the marker steps 0.2" per level from 0.20", the text hangs 0.15" past it, and the numbering tab stops are synced to the text position. **Table Bullet** (for bullets in table cells) sits tighter - bullet 0.1" in, 0.13" gap. The bullet-glyph ladder is set per level.
+- **Paragraph tweaks** - **TableText** = 0.9 line multiple, 2pt space-after (auto-spacing flags stripped). **Table of Figures** spacing matches TOC 1. **_graphic** has keep-with-next / keep-lines-together removed and no basedOn. **Sidebar** / **Sidebar Bullet** callout text styles have their floating frame removed.
+- **Table styles** - **HM-Data** and **NIST-Data**: all rules/gridlines unified to `#A6A6A6`, default cell margins top/bottom 0.01" / left 0.04" / right 0.02"; HM-Data's first column is shaded `#F2F2F2`. **Sidebar Table** (new): a callout box with a whole-table amber `#FFF2CC` fill, 0.04" cell margins, and a fixed 3" width; `Set-TableLook.ps1` floats it at the right margin (the float can't live in a table style).
 
 ### Inspection (read-only)
 
