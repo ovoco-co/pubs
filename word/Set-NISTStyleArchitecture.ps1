@@ -153,6 +153,8 @@ $rebase = [ordered]@{
 $delete = @(
     # Junk / Normal-rooted styles
     'Crossmark', 'Frontmatterhead',
+    # Word auto-generated "Style Heading 1_NoNumber + Before: 0 pt" linked-override artifact
+    'StyleHeading1NoNumberBefore0pt',
     # MS-Office paste artifacts
     'msonormal', 'paragraph', 'BasicParagraph', 'Default', 'Style1',
     'eop', 'header-section-number', 'normaltextrun',
@@ -220,12 +222,12 @@ $setColor = [ordered]@{
     'Quote'          = '404040'
     'QuoteChar'      = '404040'
     'AppendixHead4'  = '00257A'
-    # Front matter heads match the Heading font/size/spacing but stay BLACK
-    # (per request) rather than inheriting the Resolution Blue.
-    'Frontmatterhead1' = '000000'
-    'Frontmatterhead2' = '000000'
-    'Frontmatterhead3' = '000000'
-    'Frontmatterhead4' = '000000'
+    # Front matter heads match Heading 1-4 exactly, including the Resolution
+    # Blue color (per request). Versohead is the one that stays black.
+    'Frontmatterhead1' = '00257A'
+    'Frontmatterhead2' = '00257A'
+    'Frontmatterhead3' = '00257A'
+    'Frontmatterhead4' = '00257A'
 }
 
 # NIST palette reference (documentation only). The style colors above are
@@ -746,6 +748,35 @@ foreach ($target in $targets) {
         $xml = $res[0]
     }
     if ($csHits) { Write-Host "  Removed stray w:cs='Times New Roman' from $csHits heading(s)" -ForegroundColor DarkGray }
+
+    # Retire the "Black" weight from the font set: the Source Sans Pro Black face
+    # (and the stale TrueType alias "Source Sans Pro (TT) Black") are replaced by
+    # Source Sans Pro Bold. For any style whose VISIBLE face (ascii/hAnsi) was a
+    # Black variant, repoint to the family AND turn the bold toggle on so the
+    # weight stays heavy; a Black name left only in a cs (complex-script) slot
+    # just drops to the regular family.
+    $blackHits = ([regex]::Matches($xml, '(?s)<w:style\b[^>]*>.*?</w:style>') |
+                  Where-Object { $_.Value -match 'Source Sans Pro (?:\(TT\) )?Black' }).Count
+    $blackEval = [System.Text.RegularExpressions.MatchEvaluator]{
+        param($m)
+        $block = $m.Value
+        if ($block -notmatch 'Source Sans Pro (?:\(TT\) )?Black') { return $block }
+        $rf = [regex]::Match($block, '<w:rFonts\b[^>]*/>')
+        $visibleBlack = $rf.Success -and ($rf.Value -match 'w:(?:ascii|hAnsi)="Source Sans Pro (?:\(TT\) )?Black"')
+        $block = $block -replace 'Source Sans Pro \(TT\) Black', 'Source Sans Pro'
+        $block = $block -replace 'Source Sans Pro Black', 'Source Sans Pro'
+        if ($visibleBlack) {
+            if ($block -match '<w:b w:val="(?:0|false|off)"\s*/>') {
+                $block = [regex]::Replace($block, '<w:b w:val="(?:0|false|off)"\s*/>', '<w:b/>', 1)
+            } elseif ($block -notmatch '<w:b\b[^>]*/>') {
+                # rPr schema order is rFonts, then b: insert right after rFonts.
+                $block = [regex]::Replace($block, '(<w:rFonts\b[^>]*/>)', '$1<w:b/>', 1)
+            }
+        }
+        return $block
+    }.GetNewClosure()
+    $xml = [regex]::Replace($xml, '(?s)<w:style\b[^>]*>.*?</w:style>', $blackEval)
+    if ($blackHits) { Write-Host "  Black weight retired -> Source Sans Pro Bold on $blackHits style(s)" -ForegroundColor DarkGray }
 
     # Heading4: include in the heading numbering at level 4 (ilvl=3), using the
     # same numId Heading 1-3 use, so it renders "1.2.3.4". For an UNnumbered
