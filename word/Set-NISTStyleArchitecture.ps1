@@ -893,19 +893,23 @@ foreach ($target in $targets) {
         if ($tof[1]) { Write-Host "  Table of Figures: spacing matched to TOC 1" -ForegroundColor DarkGray }
     }
 
-    # Sidebar / Sidebar Bullet: drop the floating text frame (framePr) and its
-    # suppressOverlap. The sidebar callout floats via the Sidebar Table style
-    # now, so the paragraph text should be plain, not its own floating frame.
-    $stripFrameEdit = {
-        param($block)
-        $b = [regex]::Replace($block, '<w:framePr\b[^>]*/>', '')
-        $b = [regex]::Replace($b, '<w:suppressOverlap\s*/>', '')
-        return $b
+    # Sidebar / Sidebar Bullet: install the callout paragraph styles if a chapter
+    # is missing them (not every source chapter defines them). Both frameless -
+    # the callout floats via the Sidebar Table style, so the paragraph text is
+    # plain: Sidebar = sans table text (xxtable), Sidebar Bullet = Sidebar + a
+    # bullet borrowed from List Bullet's numId.
+    if ($xml -notmatch '<w:style[^>]*w:styleId="Sidebar"[^>]*>') {
+        $sidebarCanon = '<w:style w:type="paragraph" w:customStyle="1" w:styleId="Sidebar"><w:name w:val="Sidebar"/><w:basedOn w:val="xxtable"/><w:uiPriority w:val="93"/><w:qFormat/><w:pPr><w:spacing w:before="60" w:line="204" w:lineRule="auto"/></w:pPr></w:style>'
+        $xml = [regex]::Replace($xml, '</w:styles>', "$sidebarCanon</w:styles>", 1)
+        Write-Host "  Sidebar: created (was missing)" -ForegroundColor DarkGray
     }
-    foreach ($sid in @('Sidebar','SidebarBullet')) {
-        $sf = Edit-StyleBlock -Xml $xml -Id $sid -Mutator $stripFrameEdit
-        $xml = $sf[0]
-        if ($sf[1]) { Write-Host "  ${sid}: floating frame removed" -ForegroundColor DarkGray }
+    if ($xml -notmatch '<w:style[^>]*w:styleId="SidebarBullet"[^>]*>') {
+        $lbBlock = [regex]::Match($xml, '(?s)<w:style\b[^>]*w:styleId="ListBullet"[^>]*>.*?</w:style>').Value
+        $sbNumId = ([regex]::Match($lbBlock, '<w:numId\s+w:val="(\d+)"')).Groups[1].Value
+        $bulletNp = if ($sbNumId) { '<w:numPr><w:numId w:val="' + $sbNumId + '"/></w:numPr>' } else { '' }
+        $sbCanon = '<w:style w:type="paragraph" w:customStyle="1" w:styleId="SidebarBullet"><w:name w:val="Sidebar Bullet"/><w:basedOn w:val="Sidebar"/><w:uiPriority w:val="94"/><w:qFormat/><w:pPr>' + $bulletNp + '<w:ind w:left="240" w:hanging="180"/></w:pPr></w:style>'
+        $xml = [regex]::Replace($xml, '</w:styles>', "$sbCanon</w:styles>", 1)
+        Write-Host "  SidebarBullet: created (was missing)" -ForegroundColor DarkGray
     }
 
     # List, List Bullet, List Continue, and List Number share ONE ladder so they
