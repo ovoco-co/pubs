@@ -912,6 +912,28 @@ foreach ($target in $targets) {
         Write-Host "  SidebarBullet: created (was missing)" -ForegroundColor DarkGray
     }
 
+    # Turn OpenType ligatures OFF everywhere. Word's local "Save As PDF" can
+    # mis-encode ligated glyphs (auto-numbering / curly quotes in Source Sans
+    # Pro) as Cyrillic. Many styles carry <w14:ligatures w14:val="standardContextual"/>
+    # (ON), which overrides any default, so flip every existing one to "none";
+    # then set the docDefaults default to none for styles that don't set it.
+    $ligOn = ([regex]::Matches($xml, '<w14:ligatures\b[^>]*w14:val="(?!none")[^"]*"[^>]*/>')).Count
+    $xml = [regex]::Replace($xml, '(<w14:ligatures\b[^>]*w14:val=")[^"]*("[^>]*/>)', '${1}none$2')
+    $lig = '<w14:ligatures w14:val="none"/>'
+    $rprDefault = [regex]::Match($xml, '(?s)<w:rPrDefault>.*?</w:rPrDefault>').Value
+    if (-not $rprDefault -or $rprDefault -notmatch '<w14:ligatures') {
+        if ($xml -match '<w:rPrDefault>\s*<w:rPr\b[^>]*>') {
+            $xml = [regex]::Replace($xml, '(<w:rPrDefault>\s*<w:rPr\b[^>]*>)((?:(?!</w:rPr>).)*?)(</w:rPr>)', "`$1`$2$lig`$3")
+        } elseif ($xml -match '<w:rPrDefault>\s*<w:rPr\s*/>') {
+            $xml = [regex]::Replace($xml, '<w:rPrDefault>\s*<w:rPr\s*/>', "<w:rPrDefault><w:rPr>$lig</w:rPr>")
+        } elseif ($xml -match '<w:rPrDefault\s*/>') {
+            $xml = [regex]::Replace($xml, '<w:rPrDefault\s*/>', "<w:rPrDefault><w:rPr>$lig</w:rPr></w:rPrDefault>")
+        } elseif ($xml -match '<w:docDefaults>') {
+            $xml = [regex]::Replace($xml, '(<w:docDefaults>)', "`$1<w:rPrDefault><w:rPr>$lig</w:rPr></w:rPrDefault>")
+        }
+    }
+    Write-Host "  Ligatures: set to none ($ligOn style(s) flipped from on) + docDefaults" -ForegroundColor DarkGray
+
     # List, List Bullet, List Continue, and List Number share ONE ladder so they
     # line up. The bullet/number marker steps 0.2" per level (0.20/0.40/0.60/
     # 0.80/1.00"); the text sits 0.15" (216 twips) to its right (hanging=216).
