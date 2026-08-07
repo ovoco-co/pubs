@@ -56,11 +56,23 @@
 .PARAMETER Folder
     Path to a folder. Applies to every Word file in the folder.
 
+.PARAMETER Clean
+    Clean-input mode. Applies the style architecture (canonical definitions,
+    colors, indents, numbering, ligatures-off, recommended curation) but skips
+    the legacy-fix passes that only exist to rescue messy inherited documents:
+    the Heading 1/3 cs="Times New Roman" strip and the junk / paste-artifact
+    style deletions. Use on the clean template or documents built from it.
+    Set-NISTTemplateStyles.ps1 is a thin wrapper that calls this with -Clean.
+
 .PARAMETER Force
     Skip prompts.
 
 .EXAMPLE
     .\Set-NISTStyleArchitecture.ps1 -File "\\blue\E\path\to\template.dotx"
+
+.EXAMPLE
+    # Clean template workflow (no legacy fixes)
+    .\Set-NISTStyleArchitecture.ps1 -File "HM-NCSTAR-Template.docx" -Clean
 
 .EXAMPLE
     .\Set-NISTStyleArchitecture.ps1 -Folder "\\blue\E\00-clients\nist-HM\Templates" -Force
@@ -73,6 +85,8 @@ param(
 
     [Parameter(Mandatory=$true, ParameterSetName='Folder')]
     [string]$Folder,
+
+    [switch]$Clean,
 
     [switch]$Force
 )
@@ -640,6 +654,10 @@ if ($targets.Count -eq 0) { throw "No supported Word files found." }
 
 Write-Host "Targets:" -ForegroundColor Cyan
 $targets | ForEach-Object { Write-Host "  $_" }
+if ($Clean) {
+    Write-Host "  [Clean mode] applying architecture only; skipping legacy-fix passes" -ForegroundColor Cyan
+    Write-Host "  (cs='Times New Roman' strip and junk-style deletions)." -ForegroundColor Cyan
+}
 Write-Host ""
 
 if (-not $Force) {
@@ -735,18 +753,20 @@ foreach ($target in $targets) {
     # that the other headings (2, 4-9) do not. It only affects complex-script
     # (Arabic/Hebrew) runs, so it has no visible effect on Latin content, but it
     # makes the nine heading styles inconsistent. Drop the w:cs override so they
-    # all resolve fonts through the theme the same way.
-    $csHits = 0
-    foreach ($id in @('Heading1','Heading3')) {
-        $csMut = {
-            param($block)
-            [regex]::Replace($block, '(<w:rFonts\b[^>]*?)\s+w:cs="Times New Roman"([^>]*/>)', '$1$2')
+    # all resolve fonts through the theme the same way. (Legacy-fix: -Clean skips.)
+    if (-not $Clean) {
+        $csHits = 0
+        foreach ($id in @('Heading1','Heading3')) {
+            $csMut = {
+                param($block)
+                [regex]::Replace($block, '(<w:rFonts\b[^>]*?)\s+w:cs="Times New Roman"([^>]*/>)', '$1$2')
+            }
+            $res = Edit-StyleBlock -Xml $xml -Id $id -Mutator $csMut
+            if ($res[0] -ne $xml) { $csHits++ }
+            $xml = $res[0]
         }
-        $res = Edit-StyleBlock -Xml $xml -Id $id -Mutator $csMut
-        if ($res[0] -ne $xml) { $csHits++ }
-        $xml = $res[0]
+        if ($csHits) { Write-Host "  Removed stray w:cs='Times New Roman' from $csHits heading(s)" -ForegroundColor DarkGray }
     }
-    if ($csHits) { Write-Host "  Removed stray w:cs='Times New Roman' from $csHits heading(s)" -ForegroundColor DarkGray }
 
     # Leaf styles (Versohead, Title/TitleChar, MTDisplayEquation/*Char) are defined
     # wholesale as canonical blocks below, not patched here - this replaces the old
@@ -1124,14 +1144,17 @@ foreach ($target in $targets) {
         }
     }
 
-    # Apply explicit deletions
-    $deleteHits = 0
-    foreach ($id in $delete) {
-        $result = Remove-StyleBlock -Xml $xml -Id $id
-        $xml = $result[0]
-        if ($result[1]) { $deleteHits++ }
+    # Apply explicit deletions of junk / paste-artifact styles. (Legacy-fix:
+    # a clean template has none of these, so -Clean skips the pass.)
+    if (-not $Clean) {
+        $deleteHits = 0
+        foreach ($id in $delete) {
+            $result = Remove-StyleBlock -Xml $xml -Id $id
+            $xml = $result[0]
+            if ($result[1]) { $deleteHits++ }
+        }
+        Write-Host "  Deleted (explicit list): $deleteHits style(s)" -ForegroundColor DarkGray
     }
-    Write-Host "  Deleted (explicit list): $deleteHits style(s)" -ForegroundColor DarkGray
 
     # ---------------------------------------------------------------
     # Recommended-styles curation: which styles appear in Word's
