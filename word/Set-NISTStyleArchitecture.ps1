@@ -778,6 +778,24 @@ foreach ($target in $targets) {
     $xml = [regex]::Replace($xml, '(?s)<w:style\b[^>]*>.*?</w:style>', $blackEval)
     if ($blackHits) { Write-Host "  Black weight retired -> Source Sans Pro Bold on $blackHits style(s)" -ForegroundColor DarkGray }
 
+    # Title / Title Char render bold (per request). The Black weight they used to
+    # carry (in a cs slot) is gone; make the bold explicit so the family renders
+    # heavy. Turn any bold-off toggle on, else insert <w:b/><w:bCs/> after rFonts.
+    $titleBoldMut = {
+        param($block)
+        if ($block -match '<w:b w:val="(?:0|false|off)"\s*/>') {
+            $block = [regex]::Replace($block, '<w:b w:val="(?:0|false|off)"\s*/>', '<w:b/>', 1)
+        } elseif ($block -notmatch '<w:b\b[^>]*/>') {
+            $block = [regex]::Replace($block, '(<w:rFonts\b[^>]*/>)', '$1<w:b/><w:bCs/>', 1)
+        }
+        return $block
+    }
+    foreach ($id in @('Title','TitleChar')) {
+        $tb = Edit-StyleBlock -Xml $xml -Id $id -Mutator $titleBoldMut
+        $xml = $tb[0]
+        if ($tb[1]) { Write-Host "  ${id}: bold on" -ForegroundColor DarkGray }
+    }
+
     # Heading4: include in the heading numbering at level 4 (ilvl=3), using the
     # same numId Heading 1-3 use, so it renders "1.2.3.4". For an UNnumbered
     # level-4 heading use the separate "Heading 4 Sub-Head" style, which is left
