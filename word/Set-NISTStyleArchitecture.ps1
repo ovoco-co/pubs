@@ -218,7 +218,6 @@ $setColor = [ordered]@{
     'AppendixHead'   = '00257A'
     'AppendixHead2'  = '00257A'
     'AppendixHead3'  = '00257A'
-    'Versohead'      = '000000'
     'Quote'          = '404040'
     'QuoteChar'      = '404040'
     'AppendixHead4'  = '00257A'
@@ -749,52 +748,10 @@ foreach ($target in $targets) {
     }
     if ($csHits) { Write-Host "  Removed stray w:cs='Times New Roman' from $csHits heading(s)" -ForegroundColor DarkGray }
 
-    # Retire the "Black" weight from the font set: the Source Sans Pro Black face
-    # (and the stale TrueType alias "Source Sans Pro (TT) Black") are replaced by
-    # Source Sans Pro Bold. For any style whose VISIBLE face (ascii/hAnsi) was a
-    # Black variant, repoint to the family AND turn the bold toggle on so the
-    # weight stays heavy; a Black name left only in a cs (complex-script) slot
-    # just drops to the regular family.
-    $blackHits = ([regex]::Matches($xml, '(?s)<w:style\b[^>]*>.*?</w:style>') |
-                  Where-Object { $_.Value -match 'Source Sans Pro (?:\(TT\) )?Black' }).Count
-    $blackEval = [System.Text.RegularExpressions.MatchEvaluator]{
-        param($m)
-        $block = $m.Value
-        if ($block -notmatch 'Source Sans Pro (?:\(TT\) )?Black') { return $block }
-        $rf = [regex]::Match($block, '<w:rFonts\b[^>]*/>')
-        $visibleBlack = $rf.Success -and ($rf.Value -match 'w:(?:ascii|hAnsi)="Source Sans Pro (?:\(TT\) )?Black"')
-        $block = $block -replace 'Source Sans Pro \(TT\) Black', 'Source Sans Pro'
-        $block = $block -replace 'Source Sans Pro Black', 'Source Sans Pro'
-        if ($visibleBlack) {
-            if ($block -match '<w:b w:val="(?:0|false|off)"\s*/>') {
-                $block = [regex]::Replace($block, '<w:b w:val="(?:0|false|off)"\s*/>', '<w:b/>', 1)
-            } elseif ($block -notmatch '<w:b\b[^>]*/>') {
-                # rPr schema order is rFonts, then b: insert right after rFonts.
-                $block = [regex]::Replace($block, '(<w:rFonts\b[^>]*/>)', '$1<w:b/>', 1)
-            }
-        }
-        return $block
-    }.GetNewClosure()
-    $xml = [regex]::Replace($xml, '(?s)<w:style\b[^>]*>.*?</w:style>', $blackEval)
-    if ($blackHits) { Write-Host "  Black weight retired -> Source Sans Pro Bold on $blackHits style(s)" -ForegroundColor DarkGray }
-
-    # Title / Title Char render bold (per request). The Black weight they used to
-    # carry (in a cs slot) is gone; make the bold explicit so the family renders
-    # heavy. Turn any bold-off toggle on, else insert <w:b/><w:bCs/> after rFonts.
-    $titleBoldMut = {
-        param($block)
-        if ($block -match '<w:b w:val="(?:0|false|off)"\s*/>') {
-            $block = [regex]::Replace($block, '<w:b w:val="(?:0|false|off)"\s*/>', '<w:b/>', 1)
-        } elseif ($block -notmatch '<w:b\b[^>]*/>') {
-            $block = [regex]::Replace($block, '(<w:rFonts\b[^>]*/>)', '$1<w:b/><w:bCs/>', 1)
-        }
-        return $block
-    }
-    foreach ($id in @('Title','TitleChar')) {
-        $tb = Edit-StyleBlock -Xml $xml -Id $id -Mutator $titleBoldMut
-        $xml = $tb[0]
-        if ($tb[1]) { Write-Host "  ${id}: bold on" -ForegroundColor DarkGray }
-    }
+    # Leaf styles (Versohead, Title/TitleChar, MTDisplayEquation/*Char) are defined
+    # wholesale as canonical blocks below, not patched here - this replaces the old
+    # per-property regex for Black->Bold, Merriweather, and Title-bold. See the
+    # "$leafStyles" create-or-replace pass near the Header/Footer definitions.
 
     # Heading4: include in the heading numbering at level 4 (ilvl=3), using the
     # same numId Heading 1-3 use, so it renders "1.2.3.4". For an UNnumbered
@@ -1140,6 +1097,30 @@ foreach ($target in $targets) {
         if ($xml -match '</w:styles>') {
             $xml = [regex]::Replace($xml, '</w:styles>', ($pair.Block + '</w:styles>'), 1)
             Write-Host "  $($pair.Id): created/replaced" -ForegroundColor DarkGray
+        }
+    }
+
+    # Leaf styles as canonical definitions (create-or-replace), instead of
+    # per-property regex surgery. Each linked pair shares ONE rPr string so the
+    # paragraph style and its Char style are always identical:
+    #   Versohead               - Source Sans Pro Bold, black (stays black).
+    #   Title / TitleChar       - Source Sans Pro Bold, Resolution Blue, 18pt.
+    #   MTDisplayEquation / *Char - Source Serif Pro 12pt (Merriweather retired).
+    $titleRpr = '<w:rPr><w:rFonts w:ascii="Source Sans Pro" w:eastAsia="Times New Roman" w:hAnsi="Source Sans Pro" w:cs="Source Sans Pro"/><w:b/><w:bCs/><w:color w:val="00257A"/><w:spacing w:val="-12"/><w:sz w:val="36"/><w:szCs w:val="60"/><w14:ligatures w14:val="none"/></w:rPr>'
+    $eqRpr    = '<w:rPr><w:rFonts w:ascii="Source Serif Pro" w:eastAsiaTheme="minorHAnsi" w:hAnsi="Source Serif Pro" w:cstheme="minorBidi"/><w:bCs/><w:iCs/><w:kern w:val="2"/><w:sz w:val="24"/><w:szCs w:val="24"/><w14:ligatures w14:val="none"/></w:rPr>'
+    $leafStyles = [ordered]@{
+        'Versohead' = '<w:style w:type="paragraph" w:customStyle="1" w:styleId="Versohead"><w:name w:val="Verso_head"/><w:basedOn w:val="xxheader"/><w:uiPriority w:val="110"/><w:qFormat/><w:pPr><w:autoSpaceDE w:val="0"/><w:autoSpaceDN w:val="0"/><w:adjustRightInd w:val="0"/><w:spacing w:before="500"/></w:pPr><w:rPr><w:rFonts w:ascii="Source Sans Pro" w:hAnsi="Source Sans Pro"/><w:b/><w:bCs/><w:color w:val="000000"/><w14:ligatures w14:val="none"/></w:rPr></w:style>'
+        'Title' = '<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="109"/><w:next w:val="BodyText"/><w:link w:val="TitleChar"/><w:qFormat/><w:pPr><w:framePr w:wrap="around" w:vAnchor="page" w:hAnchor="page" w:xAlign="right" w:y="4321"/><w:suppressAutoHyphens/><w:autoSpaceDE w:val="0"/><w:autoSpaceDN w:val="0"/><w:adjustRightInd w:val="0"/><w:spacing w:after="160"/><w:suppressOverlap/><w:textAlignment w:val="center"/></w:pPr>' + $titleRpr + '</w:style>'
+        'TitleChar' = '<w:style w:type="character" w:customStyle="1" w:styleId="TitleChar"><w:name w:val="Title Char"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:semiHidden/><w:link w:val="Title"/><w:unhideWhenUsed/>' + $titleRpr + '</w:style>'
+        'MTDisplayEquation' = '<w:style w:type="paragraph" w:customStyle="1" w:styleId="MTDisplayEquation"><w:name w:val="MTDisplayEquation"/><w:basedOn w:val="BodyText"/><w:next w:val="Normal"/><w:link w:val="MTDisplayEquationChar"/><w:uiPriority w:val="88"/><w:qFormat/><w:pPr><w:tabs><w:tab w:val="center" w:pos="4320"/><w:tab w:val="right" w:pos="8640"/></w:tabs><w:spacing w:before="240" w:after="240"/><w:ind w:firstLine="360"/></w:pPr>' + $eqRpr + '</w:style>'
+        'MTDisplayEquationChar' = '<w:style w:type="character" w:customStyle="1" w:styleId="MTDisplayEquationChar"><w:name w:val="MTDisplayEquation Char"/><w:basedOn w:val="BodyTextChar"/><w:link w:val="MTDisplayEquation"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/>' + $eqRpr + '</w:style>'
+    }
+    foreach ($id in $leafStyles.Keys) {
+        $rm = Remove-StyleBlock -Xml $xml -Id $id
+        $xml = $rm[0]
+        if ($xml -match '</w:styles>') {
+            $xml = [regex]::Replace($xml, '</w:styles>', ($leafStyles[$id] + '</w:styles>'), 1)
+            Write-Host "  ${id}: canonical definition" -ForegroundColor DarkGray
         }
     }
 
