@@ -535,6 +535,7 @@ $headerOddBlock = @'
     <w:bCs w:val="0"/>
     <w:sz w:val="18"/>
     <w:szCs w:val="18"/>
+    <w14:ligatures w14:val="none"/>
   </w:rPr>
 </w:style>
 '@
@@ -556,6 +557,7 @@ $headerEvenBlock = @'
     <w:bCs w:val="0"/>
     <w:sz w:val="18"/>
     <w:szCs w:val="18"/>
+    <w14:ligatures w14:val="none"/>
   </w:rPr>
 </w:style>
 '@
@@ -586,6 +588,7 @@ $footerOddBlock = @'
     <w:bCs w:val="0"/>
     <w:sz w:val="18"/>
     <w:szCs w:val="18"/>
+    <w14:ligatures w14:val="none"/>
   </w:rPr>
 </w:style>
 '@
@@ -611,6 +614,7 @@ $footerEvenBlock = @'
     <w:bCs w:val="0"/>
     <w:sz w:val="18"/>
     <w:szCs w:val="18"/>
+    <w14:ligatures w14:val="none"/>
   </w:rPr>
 </w:style>
 '@
@@ -725,6 +729,23 @@ foreach ($target in $targets) {
         if ($result[1]) { $colorHits++ }
     }
     Write-Host "  Color set on: $colorHits style(s)" -ForegroundColor DarkGray
+
+    # Heading 1 and Heading 3 carry a stray <w:rFonts ... w:cs="Times New Roman"/>
+    # that the other headings (2, 4-9) do not. It only affects complex-script
+    # (Arabic/Hebrew) runs, so it has no visible effect on Latin content, but it
+    # makes the nine heading styles inconsistent. Drop the w:cs override so they
+    # all resolve fonts through the theme the same way.
+    $csHits = 0
+    foreach ($id in @('Heading1','Heading3')) {
+        $csMut = {
+            param($block)
+            [regex]::Replace($block, '(<w:rFonts\b[^>]*?)\s+w:cs="Times New Roman"([^>]*/>)', '$1$2')
+        }
+        $res = Edit-StyleBlock -Xml $xml -Id $id -Mutator $csMut
+        if ($res[0] -ne $xml) { $csHits++ }
+        $xml = $res[0]
+    }
+    if ($csHits) { Write-Host "  Removed stray w:cs='Times New Roman' from $csHits heading(s)" -ForegroundColor DarkGray }
 
     # Heading4: include in the heading numbering at level 4 (ilvl=3), using the
     # same numId Heading 1-3 use, so it renders "1.2.3.4". For an UNnumbered
@@ -918,8 +939,25 @@ foreach ($target in $targets) {
     # (ON), which overrides any default, so flip every existing one to "none";
     # then set the docDefaults default to none for styles that don't set it.
     $ligOn = ([regex]::Matches($xml, '<w14:ligatures\b[^>]*w14:val="(?!none")[^"]*"[^>]*/>')).Count
+    # 1. Flip every existing ligatures element (any val) to none.
     $xml = [regex]::Replace($xml, '(<w14:ligatures\b[^>]*w14:val=")[^"]*("[^>]*/>)', '${1}none$2')
     $lig = '<w14:ligatures w14:val="none"/>'
+    # 2. Add an explicit ligatures=none to every rPr that does not already carry
+    #    one, so the setting is present on every style's run properties rather
+    #    than relying on docDefaults inheritance. w14:ligatures is the last child
+    #    of rPr, so appending before </w:rPr> keeps schema order valid.
+    $ligAdded = ([regex]::Matches($xml, '(?s)<w:rPr\b[^>]*?/>|<w:rPr\b[^>]*?>.*?</w:rPr>') |
+                 Where-Object { $_.Value -notmatch '<w14:ligatures' }).Count
+    $rprEval = [System.Text.RegularExpressions.MatchEvaluator]{
+        param($m)
+        $w = $m.Value
+        if ($w -match '<w14:ligatures') { return $w }
+        if ($w -match '/>$') { return ($w -replace '/>$', ">$lig</w:rPr>") }
+        return ($w -replace '</w:rPr>$', "$lig</w:rPr>")
+    }.GetNewClosure()
+    $xml = [System.Text.RegularExpressions.Regex]::Replace($xml, '(?s)<w:rPr\b[^>]*?/>|<w:rPr\b[^>]*?>.*?</w:rPr>', $rprEval)
+    # 3. Guarantee docDefaults itself carries the setting (covers styles/runs
+    #    that define no rPr at all and inherit from here).
     $rprDefault = [regex]::Match($xml, '(?s)<w:rPrDefault>.*?</w:rPrDefault>').Value
     if (-not $rprDefault -or $rprDefault -notmatch '<w14:ligatures') {
         if ($xml -match '<w:rPrDefault>\s*<w:rPr\b[^>]*>') {
@@ -932,7 +970,7 @@ foreach ($target in $targets) {
             $xml = [regex]::Replace($xml, '(<w:docDefaults>)', "`$1<w:rPrDefault><w:rPr>$lig</w:rPr></w:rPrDefault>")
         }
     }
-    Write-Host "  Ligatures: set to none ($ligOn style(s) flipped from on) + docDefaults" -ForegroundColor DarkGray
+    Write-Host "  Ligatures: none on every rPr ($ligOn flipped from on, $ligAdded added) + docDefaults" -ForegroundColor DarkGray
 
     # List, List Bullet, List Continue, and List Number share ONE ladder so they
     # line up. The bullet/number marker steps 0.2" per level (0.20/0.40/0.60/
