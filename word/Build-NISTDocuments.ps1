@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
     Runs the full NIST formatting pipeline on every Word file in a folder, in
-    order: theme -> styles -> page layout -> table look -> typography -> shading
-    -> de-embed fonts. One command to take a folder of documents to
+    order: theme -> styles -> page layout -> table look -> typography ->
+    de-embed fonts. One command to take a folder of documents to
     publication-ready formatting.
 
 .DESCRIPTION
@@ -13,12 +13,17 @@
     then runs them all.
 
     The step list is defined in $steps at the top of the script - reorder,
-    comment out, or add steps there. Two scripts are intentionally NOT in the
+    comment out, or add steps there. Three scripts are intentionally NOT in the
     default pipeline:
       - Set-NISTHeaderFooterContent.ps1 : needs a per-file -FrontMatter decision
         (chapter first pages vs. front matter), so run it separately.
       - Reapply-Styles.ps1 : strips direct character formatting, which can remove
         intentional manual emphasis; run it deliberately, not in a blanket pass.
+      - Remove-Shading.ps1 : shading is often intentional. Several NIST styles
+        define fills (NIST-Data, HM-Data, SidebarTable, Quote, BlockText,
+        CaptionFigure2), and table cells carry deliberate fills that
+        -IncludeTables would strip. Run it per file when you know a document has
+        unwanted direct shading.
 
     Fails fast: if any step throws, the pipeline stops and reports which step and
     file failed, so a folder is never left half-processed silently. Every
@@ -66,7 +71,6 @@ $steps = @(
     @{ Name = 'Page layout';    Script = 'Set-PageLayout.ps1';            Args = @{} }
     @{ Name = 'Table look';     Script = 'Set-TableLook.ps1';             Args = @{} }
     @{ Name = 'Typography';     Script = 'Repair-Typography.ps1';         Args = @{} }
-    @{ Name = 'Shading';        Script = 'Remove-Shading.ps1';            Args = @{} }
     @{ Name = 'De-embed fonts'; Script = 'Remove-EmbeddedFonts.ps1';      Args = @{} }
 )
 

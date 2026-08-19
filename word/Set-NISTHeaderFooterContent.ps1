@@ -32,6 +32,16 @@
 
     Idempotent: re-running replaces the same nist* parts.
 
+    Finally, recalculates the header and footer fields through Word. Everything
+    before that step edits the ZIP directly and needs no Word, but STYLEREF and
+    PAGE fields cache their result and only Word can compute a new one. Ctrl+A
+    then F9 is not an alternative: Ctrl+A selects the main text story, so F9
+    never reaches the header and footer stories. Fields inside text boxes are
+    handled too, since those belong to the shape's text range rather than the
+    header's own range. Pass -SkipFieldUpdate to leave it; if Word is not
+    installed the script says so and the files are still correct, just showing
+    cached values.
+
 .PARAMETER File
     Path to a single Word file.
 
@@ -46,6 +56,10 @@
 
 .PARAMETER Force
     Skip the confirmation prompt.
+
+.PARAMETER SkipFieldUpdate
+    Do not open the files in Word to recalculate header/footer fields. Use when
+    Word is unavailable, or when a later step will refresh them anyway.
 
 .EXAMPLE
     # Chapters: first page gets a footer
@@ -65,6 +79,8 @@ param(
     [string]$Folder,
 
     [switch]$FrontMatter,
+
+    [switch]$SkipFieldUpdate,
 
     [switch]$Force
 )
@@ -406,6 +422,85 @@ foreach ($target in $targets) {
 
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green
-Write-Host "Reminder: open each file in Word and press Ctrl+A then F9 to refresh fields, or" -ForegroundColor Cyan
-Write-Host "          right-click in header/footer and choose 'Update Field'." -ForegroundColor Cyan
+
+# ---------------------------------------------------------------------------
+# Recalculate the header/footer fields
+# ---------------------------------------------------------------------------
+# Everything above edits the ZIP directly and needs no Word. This step does,
+# unavoidably: STYLEREF and PAGE fields store a cached result, and only Word can
+# compute a new one. Ctrl+A then F9 is not an alternative - Ctrl+A selects the
+# main text story, so F9 never reaches the header and footer stories.
+#
+# Shapes are walked separately because a field inside a text box belongs to that
+# shape's text range, not to the header's own range, so Range.Fields.Update()
+# skips it.
+if ($SkipFieldUpdate) {
+    Write-Host ""
+    Write-Host "Field update skipped (-SkipFieldUpdate). The headers and footers will show" -ForegroundColor Yellow
+    Write-Host "stale values until Word recalculates them." -ForegroundColor Yellow
+    return
+}
+
+$word = $null
+try {
+    $word = New-Object -ComObject Word.Application
+} catch {
+    Write-Host ""
+    Write-Warning "Word is not available on this machine, so the fields were not recalculated."
+    Write-Host "  The files are correct; their headers and footers just show cached values." -ForegroundColor Cyan
+    Write-Host "  Re-run this script from Windows PowerShell, or open each file in Word and" -ForegroundColor Cyan
+    Write-Host "  right-click in the header/footer > Update Field." -ForegroundColor Cyan
+    return
+}
+
+Write-Host ""
+Write-Host "Recalculating header/footer fields in Word..." -ForegroundColor Cyan
+$word.Visible = $false
+$word.DisplayAlerts = 0
+$updatedFiles = 0
+try {
+    foreach ($target in $targets) {
+        $doc = $null
+        try {
+            $doc = $word.Documents.Open($target, $false, $false)
+            # Recalculating a field is not an editorial change. With track
+            # changes on, Word would otherwise record every updated field as a
+            # revision under the last author's name and bury it in the markup
+            # of a document that is out for review.
+            $wasTracking = $doc.TrackRevisions
+            $doc.TrackRevisions = $false
+            $n = 0
+            foreach ($sec in $doc.Sections) {
+                foreach ($collection in @($sec.Headers, $sec.Footers)) {
+                    foreach ($hf in $collection) {
+                        $n += $hf.Range.Fields.Count
+                        $hf.Range.Fields.Update() | Out-Null
+                        foreach ($shp in $hf.Shapes) {
+                            if ($shp.TextFrame.HasText) {
+                                $n += $shp.TextFrame.TextRange.Fields.Count
+                                $shp.TextFrame.TextRange.Fields.Update() | Out-Null
+                            }
+                        }
+                    }
+                }
+            }
+            $doc.TrackRevisions = $wasTracking
+            $doc.Save()
+            $tracked = if ($wasTracking) { ', track changes left on' } else { '' }
+            Write-Host ("  {0}: {1} field(s) across {2} section(s){3}" -f (Split-Path -Leaf $target), $n, $doc.Sections.Count, $tracked) -ForegroundColor Gray
+            $updatedFiles++
+        } catch {
+            Write-Warning "  $(Split-Path -Leaf $target): field update failed - $($_.Exception.Message)"
+        } finally {
+            if ($doc) { $doc.Close($false) | Out-Null }
+        }
+    }
+} finally {
+    $word.Quit()
+    [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($word)
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
+}
+
+Write-Host "Fields recalculated in $updatedFiles of $($targets.Count) file(s)." -ForegroundColor Green
 Write-Host "Title comes from File > Info > Properties > Title (set with Set-NISTDocTitle.ps1)." -ForegroundColor Cyan

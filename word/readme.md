@@ -13,7 +13,7 @@ Most scripts are client-agnostic and work on any Word document. The `Set-NIST*` 
 cd \\wsl$\Ubuntu-24.04\home\artist\ovoco\tools\publishing\word
 
 $docs = "$env:USERPROFILE\Documents\260726"
-.\Set-PageLayout.ps1 -Folder $docs -InnerInches 1.25 -OuterInches 0.75
+.\Set-PageLayout.ps1 -Folder $docs
 ```
 
 (From another directory without `cd`, call by full path with the `&` operator instead: `& "\\wsl$\...\word\Set-PageLayout.ps1" -Folder $docs`.)
@@ -32,9 +32,10 @@ $docs = "$env:USERPROFILE\Documents\260726"
 
 .\Set-NISTTheme.ps1               -Folder $docs
 .\Set-NISTStyleArchitecture.ps1   -Folder $docs
-.\Set-PageLayout.ps1              -Folder $docs -InnerInches 1.25 -OuterInches 0.75
+.\Set-PageLayout.ps1              -Folder $docs
 .\Set-TableLook.ps1               -Folder $docs
 .\Set-DocTitle.ps1                -Folder $docs   # no -Title, so it prompts per file
+.\Set-NISTHeaderFooterContent.ps1 -Folder $docs
 
 # Header/footer: chapters get a first-page footer; front matter stays blank.
 # Run the front-matter file with -FrontMatter, the chapters without it.
@@ -42,8 +43,6 @@ $docs = "$env:USERPROFILE\Documents\260726"
 Get-ChildItem "$docs\*.docx" -Exclude '*Front-Matter*' | ForEach-Object {
     .\Set-NISTHeaderFooterContent.ps1 -File $_.FullName -Force
 }
-
-.\Remove-Shading.ps1              -Folder $docs   # drop stray text/paragraph backgrounds
 ```
 
 **Entering the title.** Leave `-Title` off and `Set-DocTitle.ps1` walks each file one at a time, showing `[n/total] filename`, and prompts you for that file's title:
@@ -57,9 +56,41 @@ Type the title and press Enter; it sets it and moves to the next file. Leaving a
 
 Notes:
 
-- **NIST margins.** `Set-PageLayout.ps1` defaults to 1.0" all around; `-InnerInches 1.25 -OuterInches 0.75` are the NIST mirror-margin values.
+- **NIST margins are 1 inch on all four sides**, with header and footer at 0.3". That is the documented standard and the `Set-PageLayout.ps1` default, so the build line needs no margin flags. The script still takes `-InnerInches`/`-OuterInches` if a one-off document needs mirror margins.
 - **Style colors are fixed hex**, not theme-linked, so they survive Word's Import Styles into a document with a different theme. Changing Design > Colors will not recolor them.
-- `Reapply-Styles.ps1` (strip direct character formatting) is a separate post-authoring cleanup step, not part of this build.
+- `Reapply-Styles.ps1` (strip direct character formatting) and `Remove-Shading.ps1` (strip direct shading) are separate post-authoring cleanup steps, not part of this build. Both remove formatting that is often intentional, so run them per document when you know a file needs it.
+
+## HTML, LaTeX, and Markdown into the NIST template
+
+Two scripts turn non-Word source into NIST-formatted Word documents. They need `pandoc` on PATH; everything else in this folder works without it. Full instructions, options, and troubleshooting are in [`converting-html-latex.md`](converting-html-latex.md); the summary follows.
+
+Build the reference document once per template revision:
+
+```powershell
+cd \\wsl$\Ubuntu-24.04\home\artist\ovoco\tools\publishing\word
+.\Build-NISTReferenceDoc.ps1 -Template "$env:USERPROFILE\Documents\260806\HM-NCSTAR-Template.docx" -ApplyStyleArchitecture
+```
+
+That writes `NIST-reference.docx` beside the scripts, which is where the converter looks by default. Then convert:
+
+```powershell
+.\Convert-ToNISTWord.ps1 -Folder "C:\src\report" -OutputFolder "C:\out\report"
+```
+
+Three stages run in order: pandoc against the reference doc, a remap pass that folds pandoc's styles into NIST styles, then `Build-NISTDocuments.ps1 -Clean` on the output folder. Header/footer content and document titles are still separate steps afterwards.
+
+**Why a reference doc.** Pandoc resolves styles from the reference document **by name**, not by styleId. It looks for names like `Source Code`, `Block Text`, `Image Caption`, and `First Paragraph`. Any name it cannot find, it invents with its own look. `Build-NISTReferenceDoc.ps1` adds a definition for each of those names based on the closest NIST style, and leaves alone any name the template already defines. The theme, section properties, numbering, and header/footer parts come along automatically because the reference doc is a copy of the template.
+
+**Why the remap stage.** It runs before the build pipeline on purpose. `Set-NISTStyleArchitecture.ps1` deletes styles it does not recognize but never edits `document.xml`, so a paragraph still pointing at a deleted pandoc style would quietly fall back to Normal. The remap rewrites those references first, so by the time the pipeline runs, only NIST styles are referenced.
+
+Notes:
+
+- **Tables.** Pandoc's table style is named `Table`, which the table-style allowlist would delete, so the reference doc deliberately does not define it. The converter assigns `NIST-Data` to every converted table instead (`-TableStyle` to change it, `-TableStyle ''` to leave pandoc's alone).
+- **Code.** `Source Code` and `Verbatim Char` are the only pandoc styles kept in finished documents. Nothing in the NIST set covers code.
+- **Lists** stay on pandoc's direct numbering unless you pass `-RemapLists`, which moves them onto the NIST List Bullet / List Number ladders. Bullets convert cleanly; ordered lists lose pandoc's explicit start values, so separate numbered lists can run on as one sequence.
+- **LaTeX figures** in PDF or EPS cannot be embedded in Word. The converter lists them and pandoc drops them; convert to PNG or SVG first.
+- **Math** converts to native Word equations (OMML). The `MTDisplayEquation` style is not applied automatically.
+- For heavy LaTeX (custom macros, theorem environments), consider `latexml` to HTML5 first and convert that HTML, so both source types share one path.
 
 ## Scripts
 
@@ -72,6 +103,8 @@ Notes:
 | `Set-NISTHeaderFooterContent.ps1` | Installs even/odd/first header and footer parts with STYLEREF chapter number/title and TITLE+PAGE fields. Chapter first pages get a TITLE+PAGE footer; pass `-FrontMatter` to leave the front-matter first-page footer blank. |
 | `Install-NISTThemeColors.ps1` | Thin wrapper: installs the NIST palette into the user's Word Theme Colors folder. Per-user; does not touch documents. |
 | `Audit-NISTStyleSet.ps1` | Thin wrapper: passes the required/optional NIST style ids to `Audit-StyleSet.ps1`. Pre-assembly gate for `ncstar/Build-NISTReport.ps1`. |
+| `Build-NISTReferenceDoc.ps1` | Copies the NIST template to `NIST-reference.docx` and adds a definition for every style name pandoc looks up, based on the closest NIST style. Names the template already defines are left untouched. |
+| `Convert-ToNISTWord.ps1` | Converts .html/.htm/.xhtml/.tex/.md into NIST-formatted .docx: pandoc against the reference doc, remap of pandoc styles to NIST styles, then `Build-NISTDocuments.ps1`. Also takes a .docx source (`-File` only), which retargets an existing pandoc or Quarto Word file at the NIST template. Needs pandoc on PATH. |
 
 #### What Set-NISTStyleArchitecture configures
 
@@ -101,30 +134,77 @@ All colors are written as fixed hex (no theme link) so they survive Word's Impor
 | `Expand-WordPackage.ps1` | Unpacks a Word file into a folder of XML files for hand editing. Creates a backup first. |
 | `Compress-WordPackage.ps1` | Repacks an unpacked folder back into a valid Word file. Validates the result before overwriting. |
 | `Reapply-Styles.ps1` | Strips run-level direct character formatting so paragraph styles render cleanly. Preserves italic, superscript/subscript, and OLE/MathType equations. |
+| `Set-TableParagraphStyle.ps1` | Puts every paragraph inside a table onto one paragraph style (`TableText` by default) and changes nothing else. Bold, italic, super/subscript, indentation, alignment, and numbering all survive. Handles nested tables. `-KeepStyles` exempts captions or footnotes living inside a table. |
+| `Restore-TableIndents.ps1` | Rebuilds the cell indentation pandoc drops. Reads the level from leading tabs in a `-Source` original, or from leading spaces in the target alone, and writes a real `w:ind`. Verifies the table shapes match before writing. |
+| `Set-NISTTableCaptions.ps1` | Converts the paragraphs sitting directly above tables (`Heading1` by default) into `Caption_Table` with the NIST number: `Table 1-1.  Title`, where the table number is a `SEQ` field. `-Chapter` sets the chapter digit, `-UseStyleRef` makes it a `STYLEREF` field instead. Run `-ListOnly` first. |
 | `Remove-Shading.ps1` | Removes locally applied (direct) shading from runs and paragraphs, so text and bullets show no background. Keeps style-defined shading (styles.xml is never touched) and table-cell fills (unless `-IncludeTables`). |
 | `Repair-Typography.ps1` | Converts straight quotes to curly (typographic) quotes, deciding open/close by context across run and paragraph boundaries. Only `<w:t>` text is changed - field codes and markup stay straight. Idempotent. `-Ellipses` also converts `...` to a single ellipsis. |
 | `Set-DocTitle.ps1` | Sets `<dc:title>` in docProps/core.xml. Works for any title string in any Word document. |
 | `Merge-WordDocuments.ps1` | Combines several Word files into one with a section break between each. Uses the first file as the host (theme, styles, headers), renumbers rIds/bookmarks/footnotes, copies and renames media, accepts revisions, and strips comments. Originals untouched. |
-| `Set-PageLayout.ps1` | Sets page margins with mirror margins. Configurable via -InnerInches, -OuterInches, -TopInches, -BottomInches, -HeaderInches, -FooterInches. |
+| `Set-PageLayout.ps1` | Sets page margins with mirror margins. Defaults to the 1" standard on all four sides, header and footer 0.3". Configurable via -InnerInches, -OuterInches, -TopInches, -BottomInches, -HeaderInches, -FooterInches. |
 | `Set-TableLook.ps1` | Normalizes `<w:tblLook>` to formal report defaults (Header Row + Repeat Header + Banding) and adds `<w:tblHeader/>` to first rows. Tables using the Sidebar Table style are instead floated as right-margin callout boxes (text wraps around, 3" wide, no repeat header) since the float can't live in a table style. |
 | `Set-ThemeColors.ps1` | Replaces the `<a:clrScheme>` in theme1.xml with a caller-supplied color scheme XML block. Validates all 12 theme slots are present. |
 | `Install-ThemeColors.ps1` | Installs a theme color scheme file into the user's Word Theme Colors folder so Design > Colors displays it by name. |
 | `Audit-StyleSet.ps1` | Generic style audit engine. Checks that caller-supplied required style ids exist in styles.xml. Returns non-zero on drift. JSON or table output. |
 
+### Putting table text on Table Text
+
+Converters leave cell paragraphs on whatever style they picked, usually Body Text, and pandoc puts anything it read as a block quote on Quote, which carries a border and a fill that look wrong inside a cell. `Set-TableParagraphStyle.ps1` moves them all onto `TableText`.
+
+```powershell
+.\Set-TableParagraphStyle.ps1 -Folder $docs
+
+# Leave captions and table footnotes on their own styles
+.\Set-TableParagraphStyle.ps1 -File "$docs\Chapter-05.docx" -KeepStyles CaptionTable,TableandFigureFootnotes
+```
+
+It rewrites `<w:pStyle>` and nothing else, which is the opposite end of the scale from `Reapply-Styles.ps1`:
+
+| | `Reapply-Styles.ps1` | `Set-TableParagraphStyle.ps1` |
+|---|---|---|
+| Run formatting (`w:rPr`) | wiped, except italic and super/subscript | untouched, so bold, super/subscript, and character styles all survive |
+| Paragraph style | unchanged | rewritten |
+| Indentation, alignment, numbering | unchanged | unchanged |
+| Scope | whole document, headers, footers, notes | paragraphs inside `<w:tbl>` in the body only |
+
+It refuses to run if the style is missing from `styles.xml`, since a reference to an undefined style renders as Normal with no warning. Backs up to `<name>.tablestyle.bak`, and is idempotent.
+
+### Table captions
+
+Converted documents often carry a heading above each table where a caption belongs. `Set-NISTTableCaptions.ps1` converts them and adds the number.
+
+```powershell
+# Look before writing. A section heading that happens to sit above a table
+# matches the same rule as a caption, and only the title text tells them apart.
+.\Set-NISTTableCaptions.ps1 -File "$docs\tables.docx" -ListOnly
+
+.\Set-NISTTableCaptions.ps1 -File "$docs\tables.docx" -Chapter 1
+```
+
+The output matches the production chapters character for character: the word Table, a non-breaking space, the chapter number, an en dash, a `SEQ Table \* ARABIC \s 1` field, a period, and two spaces. Only the table number is a field, so it renumbers on Ctrl+A then F9.
+
+The chapter number is literal text from `-Chapter`, because a converted extract has no Heading 1 for a `STYLEREF` field to read. Pass `-UseStyleRef` once the content is merged into a real chapter and the chapter number tracks the heading it lands under.
+
+Captions go above the table, which is the NIST convention for tables and the opposite of figures.
+
 ### Removing stray shading
 
 `Remove-Shading.ps1` targets shading applied as direct formatting - the "Pattern: Clear (White)" white box (and any other pale fill) that text and bullets pick up from pasting or template imports. Shading that comes from a style belongs and is kept.
 
-```powershell
-# Whole folder (backs up each file to <name>.shading.bak)
-.\Remove-Shading.ps1 -Folder $docs
+This is **not** part of `Build-NISTDocuments.ps1`. Run it deliberately, on documents you know have unwanted direct shading.
 
-# One file
+```powershell
+# One file (backs up to <name>.shading.bak)
 .\Remove-Shading.ps1 -File "$docs\Chapter-02.docx"
 
-# Also strip direct table-cell fills
-.\Remove-Shading.ps1 -Folder $docs -IncludeTables
+# Whole folder
+.\Remove-Shading.ps1 -Folder $docs
 ```
+
+Two kinds of shading it leaves alone by default, and both are usually intentional:
+
+- **Style-defined fills.** `styles.xml` is never opened. `NIST-Data` and `HM-Data` (`00257A` header rows), `SidebarTable` (`FFF2CC`), `Quote`/`QuoteChar` (`E6E9F2`), `BlockText` (`F2F2F2`), and `CaptionFigure2` (`D9D9D9`) all keep their fills.
+- **Table-cell fills** in `w:tcPr`. `-IncludeTables` strips these, and it is blunt: it takes every cell fill in every table in scope, not just the unwanted ones. Data tables in the NCSTAR chapters carry hundreds of deliberate cell fills, so check a document before using it.
 
 ### Fixing quotes and typography
 
@@ -180,8 +260,8 @@ To use: in Word press **Alt+F11**, Insert > Module, paste the contents of `Reapp
 
 | Folder | What it holds |
 |--------|---------------|
-| `ncstar/` | NCSTAR report assembly and front-matter validation (`Build-NISTReport.ps1`, `Test-NISTFrontMatter.ps1`). See `ncstar/README.md`. |
-| `nwirp/` | NWIRP building-block and snippet builders. See `nwirp/README.md`. |
+| `ncstar/` | NCSTAR report assembly and front-matter validation (`Build-NISTReport.ps1`, `Test-NISTFrontMatter.ps1`). See `ncstar/readme.md`. |
+| `nwirp/` | NWIRP building-block and snippet builders. See `nwirp/readme.md`. |
 
 ### OoXml Module
 

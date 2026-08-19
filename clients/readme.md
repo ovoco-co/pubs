@@ -1,6 +1,6 @@
 # Client Implementations
 
-Per-client notes. The NIST template tools were consolidated into `../word/` so all the Word scripts live in one folder; see `../word/README.md`.
+Per-client notes. The NIST template tools were consolidated into `../word/` so all the Word scripts live in one folder; see `../word/readme.md`.
 
 ## Current Clients
 

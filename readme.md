@@ -6,7 +6,13 @@ PowerShell scripts and tools for documentation engineering across multiple publi
 
 ### Word (`word/`)
 
-OOXML inspection and manipulation tools. The generic scripts work on any Word document from any client: inspect styles, compare templates for drift, unpack/repack OOXML packages, audit theme colors, strip direct formatting and shading. No Word installation required. The NIST template wrappers (`Set-NIST*`, `Audit-NISTStyleSet`) and the NCSTAR/NWIRP report builders (`word/ncstar/`, `word/nwirp/`) live here too. See `word/README.md`.
+OOXML inspection and manipulation tools. The generic scripts work on any Word document from any client: inspect styles, compare templates for drift, unpack/repack OOXML packages, audit theme colors, strip direct formatting and shading. No Word installation required. The NIST template wrappers (`Set-NIST*`, `Audit-NISTStyleSet`) and the NCSTAR/NWIRP report builders (`word/ncstar/`, `word/nwirp/`) live here too. See `word/readme.md`.
+
+Source conversion into the template lives here as well: `word/Build-NISTReferenceDoc.ps1` builds the pandoc reference document from the NIST template, and `word/Convert-ToNISTWord.ps1` turns HTML, LaTeX, and Markdown into NIST-formatted Word files. These two are the only scripts in the toolkit that need an external binary (pandoc).
+
+### Markdown and pandoc utilities (`md-docx/`, `scrape/`)
+
+Generic conversion and capture scripts with no template awareness: Markdown to Word, Word to Markdown, PDF to Markdown, HTML to Markdown, and documentation site scrapers. Use these for throwaway or interchange work. Anything that has to land in a client template goes through the Word path instead.
 
 ### DITA (`dita/`)
 
@@ -27,7 +33,7 @@ Note: `dita/` converts Word content INTO DITA format. `frame/structured/dita/` p
 
 Per-client notes. The NIST template tools were consolidated into `word/` (wrappers alongside the generic engines; `word/ncstar/` and `word/nwirp/` for the report builders), so all Word scripts live in one folder.
 
-- NIST - now in `word/` (see `word/README.md`)
+- NIST - now in `word/` (see `word/readme.md`)
 - `clients/navy/` - Navy-specific tools (placeholder)
 
 ## Onboarding a New Client
@@ -45,6 +51,7 @@ Client scripts are thin wrappers that supply client configuration (palette, styl
 - PowerShell 5.1 or PowerShell 7+
 - No Word installation, no COM automation
 - All OOXML tools use System.IO.Compression and System.Xml
+- Pandoc, for the source-conversion scripts only (`word/Convert-ToNISTWord.ps1` and the `md-docx/` wrappers). Every other script runs without it
 
 ## Pipeline Independence
 

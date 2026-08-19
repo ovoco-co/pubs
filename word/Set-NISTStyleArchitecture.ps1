@@ -12,7 +12,8 @@
     REBASE (change basedOn to break Normal inheritance):
       Heading1-9, Series                               -> xxheader
       Front_matter_head1-4                             -> Heading1-4 (match, no numbering)
-      Caption                                          -> xxheader (same font as headers)
+      Caption                                          -> xxheader (Semibold 10pt, no bold)
+      Caption_Table, Caption_Figure                    -> Caption
       BodyText                                         -> xxbase
       List Bullet, List Bullet 2-5                     -> xxbase
       List Number, List Number 2-5                     -> xxbase
@@ -116,6 +117,14 @@ $rebase = [ordered]@{
     'Heading9'                 = 'xxheader'
     'BodyText'                 = 'xxbase'
     'Caption'                  = 'xxheader'
+    # Caption_Table and Caption_Figure carry the caption look, so they hang off
+    # Caption, not off xxheader. Based on xxheader they picked up the heading
+    # engine's 12pt and bold and rendered as headings. Both styleId spellings
+    # are listed because Word strips the underscore when it creates the id.
+    'CaptionTable'             = 'Caption'
+    'Caption_Table'            = 'Caption'
+    'CaptionFigure'            = 'Caption'
+    'Caption_Figure'           = 'Caption'
     'ListBullet'               = 'xxbase'
     'ListBullet2'              = 'xxbase'
     'ListBullet3'              = 'xxbase'
@@ -216,7 +225,7 @@ $setColor = [ordered]@{
     'Heading3'       = '00257A'
     'Heading4'       = '00257A'
     'Heading5'       = '404040'   # neutral dark gray, distinct from the H1-H4 Resolution Blue
-    'Heading6'       = '00257A'
+    'Heading6'       = '404040'   # match Heading5: the deep levels drop out of the blue
     'Heading7'       = '00257A'
     'Heading8'       = '00257A'
     'Heading9'       = '00257A'
@@ -225,7 +234,7 @@ $setColor = [ordered]@{
     'Heading3Char'   = '00257A'
     'Heading4Char'   = '00257A'
     'Heading5Char'   = '404040'   # match Heading5
-    'Heading6Char'   = '00257A'
+    'Heading6Char'   = '404040'   # match Heading6
     'Heading7Char'   = '00257A'
     'Heading8Char'   = '00257A'
     'Heading9Char'   = '00257A'
@@ -452,6 +461,42 @@ $headerFontEdit = {
     return Edit-RunRPrInStyle -Block $block -NewFont 'Source Sans Pro Light' -SizeHalfPts '18'
 }
 
+# Caption: Source Sans Pro Semibold, 10pt (sz=20), no bold, +0.2pt tracking.
+# Caption_Table and
+# Caption_Figure inherit all three. The weight comes from the Semibold face, so
+# w:b is written explicitly OFF: w:b is a toggle property, and left absent it
+# would inherit the bold from xxheader and stack synthesized weight on top of a
+# face that is already semibold.
+# (Color #00257A is applied by the setColor pass.)
+#
+# Tracking: +0.2pt. Source Sans Pro is a tight humanist sans and sets cramped at
+# caption size, especially in the Semibold face. w:spacing inside rPr is the
+# character-level tracking Word exposes as Font > Advanced > Spacing: Expanded,
+# and is unrelated to the w:spacing inside pPr that sets before/after/line. The
+# value is twentieths of a point, so 4 = 0.2pt. Caption_Table and Caption_Figure
+# inherit it from Caption.
+$captionFontEdit = {
+    param($block)
+    $b = Edit-RunRPrInStyle -Block $block -NewFont 'Source Sans Pro Semibold' -SizeHalfPts '20'
+    $track = '<w:spacing w:val="4"/>'
+    # In rPr the child order runs ... color, spacing, w, kern, position, sz ...
+    # so tracking goes in before w:sz, never after it.
+    $pPrCloseIdx = $b.IndexOf('</w:pPr>')
+    if ($pPrCloseIdx -ge 0) {
+        $cut = $pPrCloseIdx + '</w:pPr>'.Length
+        $prefix = $b.Substring(0, $cut); $tail = $b.Substring($cut)
+    } else {
+        $prefix = ''; $tail = $b
+    }
+    $tail = [regex]::Replace($tail, '<w:spacing w:val="-?\d+"\s*/>', '')
+    if ($tail -match '<w:sz\b[^/]*?/>') {
+        $tail = [regex]::Replace($tail, '(<w:sz\b[^/]*?/>)', "$track`$1", 1)
+    } elseif ($tail -match '<w:rPr>') {
+        $tail = [regex]::Replace($tail, '</w:rPr>', "$track</w:rPr>", 1)
+    }
+    return $prefix + $tail
+}
+
 # Footer: Source Sans Pro Light, 9pt (sz=18), no bold.
 $footerFontEdit = {
     param($block)
@@ -477,10 +522,22 @@ $xxbaseSizeEdit = {
     return $b
 }
 
-# xxbase: 4pt before / 4pt after (80/80 twips), line spacing 1.1 multiple (264).
+# xxbase: 0 before / 6pt after (0/120 twips), line spacing 1.1 multiple (264).
+#
+# Space-after only, with before at zero. Word takes the MAXIMUM of the first
+# paragraph's after, the second's before, and the inter-line spacing - it never
+# adds them - so setting both sides means the smaller value is simply invisible
+# and the numbers in the style stop describing what lands on the page.
+#
+# Zero before is also what makes heading space-after work. The gap under a
+# heading is max(heading after, body before), so a non-zero body before swallows
+# any heading after smaller than it, which is what forced the heading after
+# values up to 6-10pt and inverted them against their own before values. Every
+# style set Microsoft ships does the same thing: after on the body, before on
+# the headings, nothing set on both.
 $xxbaseSpacingEdit = {
     param($block)
-    $newSpacing = 'w:before="80" w:after="80" w:line="264" w:lineRule="auto"'
+    $newSpacing = 'w:before="0" w:after="120" w:line="264" w:lineRule="auto"'
     if ($block -match '<w:spacing\b[^/]*?/>') {
         return [regex]::Replace($block, '<w:spacing\b[^/]*?/>', "<w:spacing $newSpacing/>", 1)
     }
@@ -494,13 +551,47 @@ $xxbaseSpacingEdit = {
 # $bodyTextEdit is a NIST alias for it.
 $bodyTextEdit = $BodyTextSpacingEdit
 
-# Block-level mutations: Caption_Figure_2 (Source Sans Pro 10pt, no bold, light grey background,
+# Block-level mutations: Caption_Figure_2 (Source Sans Pro 10pt, no bold,
+# 4pt padding all around, light grey background,
 # light grey paragraph background). Resolution Blue shading is too dark to
 # read against, so the callout background is #F2F2F2 (Office "Background 1,
 # Darker 5%") for a clearly visible but subtle band.
 $captionFigure2Edit = {
     param($block)
     $b = Edit-RunRPrInStyle -Block $block -NewFont 'Source Sans Pro' -SizeHalfPts '20'
+    # Border and Shading > Options: 4pt distance from text on all four sides, so
+    # the grey band stands off the text instead of hugging it. The borders
+    # themselves stay "none"; w:space is the padding, and Word needs the four
+    # side elements present to carry it. pBdr precedes shd in pPr child order.
+    $pad = '<w:pBdr>' +
+           '<w:top w:val="none" w:sz="0" w:space="4" w:color="auto"/>' +
+           '<w:left w:val="none" w:sz="0" w:space="4" w:color="auto"/>' +
+           '<w:bottom w:val="none" w:sz="0" w:space="4" w:color="auto"/>' +
+           '<w:right w:val="none" w:sz="0" w:space="4" w:color="auto"/>' +
+           '</w:pBdr>'
+    if ($b -match '(?s)<w:pBdr>.*?</w:pBdr>') {
+        $b = [regex]::Replace($b, '(?s)<w:pBdr>.*?</w:pBdr>', $pad, 1)
+    } elseif ($b -match '<w:pPr>') {
+        $b = [regex]::Replace($b, '<w:pPr>', "<w:pPr>$pad", 1)
+    }
+
+    # Line spacing multiple 0.9 (216 = 0.9 x 240). It inherited 0.85 from the
+    # header chain, which reads as cramped in the grey callout band.
+    if ($b -match '<w:spacing\b[^/]*?/>') {
+        $b = [regex]::Replace($b, '<w:spacing\b([^/]*?)/>',
+            {
+                param($m)
+                $attrs = $m.Groups[1].Value
+                $attrs = [regex]::Replace($attrs, '\s*w:line="[^"]*"', '')
+                $attrs = [regex]::Replace($attrs, '\s*w:lineRule="[^"]*"', '')
+                "<w:spacing$attrs w:line=`"216`" w:lineRule=`"auto`"/>"
+            }, 1)
+    } elseif ($b -match '(?s)<w:shd\b[^/]*?/>') {
+        # spacing follows shd in pPr child order.
+        $b = [regex]::Replace($b, '(<w:shd\b[^/]*?/>)', '$1<w:spacing w:line="216" w:lineRule="auto"/>', 1)
+    } elseif ($b -match '</w:pPr>') {
+        $b = [regex]::Replace($b, '</w:pPr>', '<w:spacing w:line="216" w:lineRule="auto"/></w:pPr>', 1)
+    }
     # Paragraph shading: replace any existing shd inside pPr, or insert just
     # before </w:pPr>. Operate on the pPr region only so we never touch
     # run-level shading.
@@ -543,6 +634,40 @@ $headerOddBlock = @'
       <w:bottom w:val="single" w:sz="6" w:space="4" w:color="00257A"/>
     </w:pBdr>
     <w:jc w:val="right"/>
+  </w:pPr>
+  <w:rPr>
+    <w:rFonts w:ascii="Source Sans Pro Light" w:hAnsi="Source Sans Pro Light" w:cs="Source Sans Pro Light"/>
+    <w:b w:val="0"/>
+    <w:bCs w:val="0"/>
+    <w:sz w:val="18"/>
+    <w:szCs w:val="18"/>
+    <w14:ligatures w14:val="none"/>
+  </w:rPr>
+</w:style>
+'@
+
+# Headerch: the chapter opener. Same face as Header but with NO rule
+# underneath, for the banner table of color blocks that sits immediately before
+# the first Heading 1. That cell uses Header today and picks up its horizontal
+# rule, which does not belong inside the banner. Applied by hand, not by any
+# script: this only guarantees the style exists and is defined correctly.
+# The bottom border is written explicitly as "none" rather than left out, so it
+# overrides what Header carries.
+#
+# Name and styleId are both "Headerch", with no underscore. Word derives the id
+# from the NAME by stripping non-alphanumerics, so a name like "Header_ch" would
+# yield the id "Headerch" and Word would silently rewrite any other casing on
+# first save, repointing every reference and leaving the style looking like it
+# had vanished. Keeping the two identical sidesteps that.
+$headerChBlock = @'
+<w:style w:type="paragraph" w:customStyle="1" w:styleId="Headerch">
+  <w:name w:val="Headerch"/>
+  <w:basedOn w:val="Header"/>
+  <w:qFormat/>
+  <w:pPr>
+    <w:pBdr>
+      <w:bottom w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+    </w:pBdr>
   </w:pPr>
   <w:rPr>
     <w:rFonts w:ascii="Source Sans Pro Light" w:hAnsi="Source Sans Pro Light" w:cs="Source Sans Pro Light"/>
@@ -998,6 +1123,162 @@ foreach ($target in $targets) {
     }
     Write-Host "  Ligatures: none on every rPr ($ligOn flipped from on, $ligAdded added) + docDefaults" -ForegroundColor DarkGray
 
+    # ---- Heading spacing ----
+    # Space-before carries the gap, space-after stays small. Word takes the
+    # MAXIMUM of the first paragraph's after, the second's before and the
+    # inter-line spacing, so with body text at 0 before / 6pt after, a heading's
+    # before must clear 6pt to open any space at all, and its after lands
+    # unopposed because nothing below sets before. That is the pattern every
+    # Microsoft style set ships, and it is why the old values (Heading 2 at 4pt
+    # before / 6pt after) read as inverted: the heading sat closer to the text
+    # above it than the text it introduced.
+    #
+    # before descends with level; after is small and near-flat.
+    $headingSpacing = [ordered]@{
+        'Heading1' = @{ Before = 360; After = 80 }   # 18pt / 4pt
+        'Heading2' = @{ Before = 280; After = 60 }   # 14pt / 3pt
+        'Heading3' = @{ Before = 240; After = 60 }   # 12pt / 3pt
+        'Heading4' = @{ Before = 200; After = 40 }   # 10pt / 2pt
+        'Heading5' = @{ Before = 180; After = 40 }   #  9pt / 2pt
+        'Heading6' = @{ Before = 160; After = 40 }   #  8pt / 2pt
+        # Front_matter_head4 doubles as the contributor sub-head (Participants,
+        # Chapter 1, ...) in Acknowledgements and Author Chapter Credits, so it
+        # keeps a slightly looser after than Heading 4.
+        'Frontmatterhead4' = @{ Before = 200; After = 80 }   # 10pt / 4pt
+    }
+    foreach ($id in $headingSpacing.Keys) {
+        $bef = $headingSpacing[$id].Before
+        $aft = $headingSpacing[$id].After
+        $newSp = "<w:spacing w:before=`"$bef`" w:after=`"$aft`"/>"
+        $r = Edit-StyleBlock -Xml $xml -Id $id -Mutator {
+            param($block)
+            if ($block -match '<w:spacing\b[^/]*?/>') {
+                return [regex]::Replace($block, '<w:spacing\b([^/]*?)/>', {
+                    param($m)
+                    $a = $m.Groups[1].Value
+                    $a = [regex]::Replace($a, '\s*w:before="[^"]*"', '')
+                    $a = [regex]::Replace($a, '\s*w:after="[^"]*"', '')
+                    $a = [regex]::Replace($a, '\s*w:beforeAutospacing="[^"]*"', '')
+                    $a = [regex]::Replace($a, '\s*w:afterAutospacing="[^"]*"', '')
+                    "<w:spacing w:before=`"$bef`" w:after=`"$aft`"$a/>"
+                }, 1)
+            } elseif ($block -match '</w:pPr>') {
+                return [regex]::Replace($block, '</w:pPr>', "$newSp</w:pPr>", 1)
+            }
+            return [regex]::Replace($block, '</w:style>', "<w:pPr>$newSp</w:pPr></w:style>", 1)
+        }.GetNewClosure()
+        $xml = $r[0]
+        if ($r[1]) { Write-Host ("  {0}: before={1}pt after={2}pt" -f $id, ($bef/20), ($aft/20)) -ForegroundColor DarkGray }
+    }
+
+    # The Front_matter_head and Appendix_Head families are clones of Heading 1-4
+    # and each carried its own spacing override, so they ignored the table above
+    # and drifted. Stripping the override lets them inherit from their Heading
+    # parent, which is the whole point of the basedOn chain.
+    $cloneFamilies = @('Frontmatterhead1','Frontmatterhead2','Frontmatterhead3',
+                       'AppendixHead','AppendixHead2','AppendixHead3','AppendixHead4',
+                       'Heading4Sub-Head')
+    $cloneHits = 0
+    foreach ($id in $cloneFamilies) {
+        $r = Edit-StyleBlock -Xml $xml -Id $id -Mutator {
+            param($block)
+            return [regex]::Replace($block, '<w:spacing\b[^/]*?/>', '')
+        }
+        $xml = $r[0]
+        if ($r[1]) { $cloneHits++ }
+    }
+    Write-Host "  Front_matter_head / Appendix_Head / Heading4 Sub-Head: spacing override stripped on $cloneHits style(s), now inherit" -ForegroundColor DarkGray
+
+    # Heading 4 Sub-Head is a Heading 4 without a number. numPr inherits through
+    # basedOn, so leaving it out adopts Heading 4's numbering instead of removing
+    # it - numId=0 is the documented "no numbering" sentinel. Eight of the ten
+    # chapters were missing this and were numbering their sub-heads.
+    $sub = Edit-StyleBlock -Xml $xml -Id 'Heading4Sub-Head' -Mutator $SuppressNumbering
+    $xml = $sub[0]
+    if ($sub[1]) { Write-Host "  Heading4 Sub-Head: numbering suppressed (numId=0)" -ForegroundColor DarkGray }
+
+    # Heading 6: semibold italic, and grey via the color pass. It was bold blue
+    # 12pt, identical to Heading 4.
+    $h6 = Edit-StyleBlock -Xml $xml -Id 'Heading6' -Mutator {
+        param($block)
+        $b = Edit-RunRPrInStyle -Block $block -NewFont 'Source Sans Pro SemiBold' -SizeHalfPts '24'
+        $pPrCloseIdx = $b.IndexOf('</w:pPr>')
+        if ($pPrCloseIdx -ge 0) {
+            $cut = $pPrCloseIdx + '</w:pPr>'.Length
+            $prefix = $b.Substring(0, $cut); $tail = $b.Substring($cut)
+        } else { $prefix = ''; $tail = $b }
+        if ($tail -notmatch '<w:i\b') {
+            $tail = [regex]::Replace($tail, '<w:rPr>', '<w:rPr><w:i/><w:iCs/>', 1)
+        }
+        return Sort-RunPropertyOrder -Block ($prefix + $tail)
+    }
+    $xml = $h6[0]
+    if ($h6[1]) { Write-Host "  Heading6: Source Sans Pro SemiBold italic 12pt (grey via color pass)" -ForegroundColor DarkGray }
+
+    # ---- Pagination: off by default, on where it earns its keep ----
+    # Blanket keep-with-next and keep-lines fight a fixed page grid: they push
+    # content to the next page and leave short pages behind. But turning them
+    # off everywhere strands headings at the foot of a page and separates a
+    # table caption from its table, which is worse. So: strip everything first,
+    # then switch them back on only for the styles that need them.
+    #
+    # widowControl defaults to ON when absent, so leaving it stripped restores
+    # Word's normal behaviour - a single stranded line is a real defect, not a
+    # grid problem.
+    $keepNextHits  = ([regex]::Matches($xml, '<w:keepNext\b[^>]*/>')).Count
+    $keepLinesHits = ([regex]::Matches($xml, '<w:keepLines\b[^>]*/>')).Count
+    $widowHits     = ([regex]::Matches($xml, '<w:widowControl\b[^>]*/>')).Count
+    $xml = [regex]::Replace($xml, '<w:keepNext\b[^>]*/>', '')
+    $xml = [regex]::Replace($xml, '<w:keepLines\b[^>]*/>', '')
+    $xml = [regex]::Replace($xml, '<w:widowControl\b[^>]*/>', '')
+
+    # A heading belongs to the text beneath it, and a table caption sits ABOVE
+    # its table, so both need keep-with-next. _graphic carries the figure
+    # itself: Word has no keep-with-PREVIOUS, so the figure keeps with the
+    # caption that follows it. keepLines stops a two-line heading or caption
+    # splitting across the break.
+    $keepWithNext = @(
+        'Heading1','Heading2','Heading3','Heading4','Heading5','Heading6',
+        'Heading7','Heading8','Heading9','Heading4Sub-Head',
+        'Frontmatterhead1','Frontmatterhead2','Frontmatterhead3','Frontmatterhead4',
+        'AppendixHead','AppendixHead2','AppendixHead3','AppendixHead4',
+        'Versohead','Series','Versohead',
+        'CaptionTable','Caption_Table','graphic'
+    ) | Select-Object -Unique
+    # Captions below a figure only need to hold themselves together.
+    $keepLinesOnly = @('CaptionFigure','Caption_Figure','CaptionFigure2','CaptionFigure2','caption','Caption')
+
+    $kn = 0; $kl = 0
+    foreach ($id in $keepWithNext) {
+        $r = Edit-StyleBlock -Xml $xml -Id $id -Mutator {
+            param($block)
+            $add = '<w:keepNext/><w:keepLines/>'
+            if ($block -match '<w:pPr>') {
+                return [regex]::Replace($block, '<w:pPr>', "<w:pPr>$add", 1)
+            } elseif ($block -match '<w:pPr\s*/>') {
+                return [regex]::Replace($block, '<w:pPr\s*/>', "<w:pPr>$add</w:pPr>", 1)
+            }
+            return [regex]::Replace($block, '</w:style>', "<w:pPr>$add</w:pPr></w:style>", 1)
+        }
+        $xml = $r[0]
+        if ($r[1]) { $kn++ }
+    }
+    foreach ($id in $keepLinesOnly) {
+        $r = Edit-StyleBlock -Xml $xml -Id $id -Mutator {
+            param($block)
+            $add = '<w:keepLines/>'
+            if ($block -match '<w:pPr>') {
+                return [regex]::Replace($block, '<w:pPr>', "<w:pPr>$add", 1)
+            } elseif ($block -match '<w:pPr\s*/>') {
+                return [regex]::Replace($block, '<w:pPr\s*/>', "<w:pPr>$add</w:pPr>", 1)
+            }
+            return [regex]::Replace($block, '</w:style>', "<w:pPr>$add</w:pPr></w:style>", 1)
+        }
+        $xml = $r[0]
+        if ($r[1]) { $kl++ }
+    }
+    Write-Host "  Pagination: cleared (keepNext $keepNextHits, keepLines $keepLinesHits, widow $widowHits); keep-with-next on $kn style(s), keep-lines on $kl more; widow/orphan left ON" -ForegroundColor DarkGray
+
     # List, List Bullet, List Continue, and List Number share ONE ladder so they
     # line up. The bullet/number marker steps 0.2" per level (0.20/0.40/0.60/
     # 0.80/1.00"); the text sits 0.15" (216 twips) to its right (hanging=216).
@@ -1096,19 +1377,27 @@ foreach ($target in $targets) {
     $xml = $bt[0]
     if ($bt[1]) { Write-Host "  BodyText: spacing override stripped (inherits xxbase)" -ForegroundColor DarkGray }
 
-    # Caption_Figure_2: Source Sans Pro 10pt, no bold, light grey background
+    # Caption: Source Sans Pro Semibold 10pt, no bold
+    foreach ($id in @('Caption')) {
+        $cap = Edit-StyleBlock -Xml $xml -Id $id -Mutator $captionFontEdit
+        $xml = $cap[0]
+        if ($cap[1]) { Write-Host "  ${id}: Source Sans Pro Semibold 10pt, no bold, +0.2pt tracking" -ForegroundColor DarkGray }
+    }
+
+    # Caption_Figure_2: Source Sans Pro 10pt, no bold, 4pt padding, 0.9 line, light grey background
     $cf2 = Edit-StyleBlock -Xml $xml -Id 'Caption_Figure_2' -Mutator $captionFigure2Edit
     $xml = $cf2[0]
-    if ($cf2[1]) { Write-Host "  Caption_Figure_2: Source Sans Pro 10pt, no bold, light grey background" -ForegroundColor DarkGray }
+    if ($cf2[1]) { Write-Host "  Caption_Figure_2: Source Sans Pro 10pt, no bold, 4pt padding, 0.9 line, light grey background" -ForegroundColor DarkGray }
 
     # Caption_Figure_2 styleId variations (Word strips underscore)
     $cf2b = Edit-StyleBlock -Xml $xml -Id 'CaptionFigure2' -Mutator $captionFigure2Edit
     $xml = $cf2b[0]
-    if ($cf2b[1]) { Write-Host "  CaptionFigure2: Source Sans Pro 10pt, no bold, light grey background" -ForegroundColor DarkGray }
+    if ($cf2b[1]) { Write-Host "  CaptionFigure2: Source Sans Pro 10pt, no bold, 4pt padding, 0.9 line, light grey background" -ForegroundColor DarkGray }
 
     # Header Odd / Header Even / Footer Odd / Footer Even: create if absent, replace if present
     foreach ($pair in @(@{ Id='HeaderOdd';  Block=$headerOddBlock },
                         @{ Id='HeaderEven'; Block=$headerEvenBlock },
+                        @{ Id='Headerch';  Block=$headerChBlock },
                         @{ Id='FooterOdd';  Block=$footerOddBlock },
                         @{ Id='FooterEven'; Block=$footerEvenBlock })) {
         $rmResult = Remove-StyleBlock -Xml $xml -Id $pair.Id
@@ -1239,6 +1528,93 @@ foreach ($target in $targets) {
         if ($result[1]) { $tableDeleteHits++ }
     }
     Write-Host "  Deleted (table bloat): $tableDeleteHits style(s)" -ForegroundColor DarkGray
+
+    # ---- Create the List Number family when the document has no definition ----
+    # Edit-StyleBlock only edits what is already there. A document that never
+    # carried List Number therefore came out of every pass above untouched, and
+    # Word then invents the style from its own built-ins: Times New Roman, based
+    # on Normal, ignoring the whole xx* architecture. List Bullet was fine in the
+    # same files only because it happened to be defined.
+    #
+    # Creating the style alone is not enough - a numPr pointing at a numId that
+    # does not exist renders unnumbered - so the abstractNum and num are built
+    # alongside it, with ids allocated above whatever the document already uses.
+    if ($numberingXml) {
+        $numberFormats = [ordered]@{
+            'ListNumber'  = @{ Fmt = 'decimal';     Text = '%1.' }
+            'ListNumber2' = @{ Fmt = 'lowerLetter'; Text = '%1)' }
+            'ListNumber3' = @{ Fmt = 'lowerRoman';  Text = '%1.' }
+            'ListNumber4' = @{ Fmt = 'decimal';     Text = '%1.' }
+            'ListNumber5' = @{ Fmt = 'decimal';     Text = '%1.' }
+        }
+        $missingNumber = @($numberFormats.Keys | Where-Object {
+            -not [regex]::IsMatch($xml, '<w:style\b[^>]*\bw:styleId="' + $_ + '"')
+        })
+        if ($missingNumber.Count -gt 0) {
+            # Next free ids. abstractNumId and numId are separate sequences.
+            $absIds = [regex]::Matches($numberingXml, '<w:abstractNum\b[^>]*w:abstractNumId="(\d+)"') |
+                      ForEach-Object { [int]$_.Groups[1].Value }
+            $numIds = [regex]::Matches($numberingXml, '<w:num\b[^>]*w:numId="(\d+)"') |
+                      ForEach-Object { [int]$_.Groups[1].Value }
+            $nextAbs = 1 + (($absIds | Measure-Object -Maximum).Maximum)
+            $nextNum = 1 + (($numIds | Measure-Object -Maximum).Maximum)
+
+            $newAbstracts = ''
+            $newNums      = ''
+            foreach ($id in $missingNumber) {
+                $left = $listIndents[$id].Left
+                $hang = $listIndents[$id].Hanging
+                $fmt  = $numberFormats[$id].Fmt
+                $text = $numberFormats[$id].Text
+
+                # One single-level abstractNum per style, matching how the
+                # existing List Bullet family is built: these are flat lists, not
+                # levels of one nested list.
+                $newAbstracts += '<w:abstractNum w:abstractNumId="' + $nextAbs + '">' +
+                    '<w:multiLevelType w:val="singleLevel"/>' +
+                    '<w:lvl w:ilvl="0">' +
+                    '<w:start w:val="1"/>' +
+                    '<w:numFmt w:val="' + $fmt + '"/>' +
+                    '<w:lvlText w:val="' + $text + '"/>' +
+                    '<w:lvlJc w:val="left"/>' +
+                    '<w:pPr><w:ind w:left="' + $left + '" w:hanging="' + $hang + '"/></w:pPr>' +
+                    '</w:lvl></w:abstractNum>'
+                $newNums += '<w:num w:numId="' + $nextNum + '"><w:abstractNumId w:val="' + $nextAbs + '"/></w:num>'
+
+                $styleBlock = '<w:style w:type="paragraph" w:styleId="' + $id + '">' +
+                    '<w:name w:val="' + ($id -replace '^ListNumber', 'List Number ').TrimEnd() + '"/>' +
+                    '<w:basedOn w:val="xxbase"/>' +
+                    '<w:uiPriority w:val="66"/><w:qFormat/>' +
+                    '<w:pPr><w:numPr><w:numId w:val="' + $nextNum + '"/></w:numPr>' +
+                    '<w:contextualSpacing/>' +
+                    '<w:ind w:left="' + $left + '" w:hanging="' + $hang + '"/></w:pPr>' +
+                    '</w:style>'
+                $xml = [regex]::Replace($xml, '</w:styles>', $styleBlock + '</w:styles>', 1)
+
+                Write-Host "  ${id}: created (numId $nextNum, $fmt '$text', ind left=$left)" -ForegroundColor DarkGray
+                $nextAbs++
+                $nextNum++
+            }
+            # abstractNum elements must precede every num element in numbering.xml.
+            if ($numberingXml -match '<w:num\b') {
+                $numberingXml = [regex]::Replace($numberingXml, '(<w:num\b)', $newAbstracts + '$1', 1)
+            } else {
+                $numberingXml = [regex]::Replace($numberingXml, '</w:numbering>', $newAbstracts, 1)
+            }
+            $numberingXml = [regex]::Replace($numberingXml, '</w:numbering>', $newNums + '</w:numbering>', 1)
+            Write-Host "  List Number family: $($missingNumber.Count) style(s) created with numbering" -ForegroundColor DarkGray
+        }
+    }
+
+    # ---- rPr element order ----
+    # The children of w:rPr are a schema sequence, not a set. Successive regex
+    # insertions scramble it (a function writing rFonts then sz, both "just
+    # after <w:rPr>", leaves sz in front of rFonts). Word reads any order, so
+    # nothing looks wrong, but validators and other consumers may reject it.
+    # Sorting the whole file once catches styles no mutator touched.
+    $beforeSort = ([regex]::Matches($xml, '(?s)<w:rPr(?:\s[^>]*?)?>.*?</w:rPr>')).Count
+    $xml = Sort-RunPropertyOrder -Block $xml
+    Write-Host "  rPr element order: normalised across $beforeSort run-property block(s)" -ForegroundColor DarkGray
 
     # Numbering pass: uses OoXml module functions
     if ($numberingXml) {
