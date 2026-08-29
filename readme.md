@@ -10,6 +10,10 @@ OOXML inspection and manipulation tools. The generic scripts work on any Word do
 
 Source conversion into the template lives here as well: `word/Build-NISTReferenceDoc.ps1` builds the pandoc reference document from the NIST template, and `word/Convert-ToNISTWord.ps1` turns HTML, LaTeX, and Markdown into NIST-formatted Word files. These two are the only scripts in the toolkit that need an external binary (pandoc).
 
+### Charts (`charts/`)
+
+Chart styling VBA and the guide it implements: `StyleCharts_PowerPoint.bas` and `StyleCharts_Excel.bas` apply the NWIRP publication look - palette, axes, gridlines, legends, labels - to charts that already exist in a deck or workbook. They restyle; they do not build charts from data. The guide also covers getting a chart into Word as an EMF and the 508 alt-text checklist. See `charts/readme.md`.
+
 ### Markdown and pandoc utilities (`md-docx/`, `scrape/`)
 
 Generic conversion and capture scripts with no template awareness: Markdown to Word, Word to Markdown, PDF to Markdown, HTML to Markdown, and documentation site scrapers. Use these for throwaway or interchange work. Anything that has to land in a client template goes through the Word path instead.
