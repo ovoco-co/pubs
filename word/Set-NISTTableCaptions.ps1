@@ -9,6 +9,12 @@
     by a table, moves them onto -Style (Caption_Table), and prepends the NIST
     caption number, keeping the existing title text and its formatting.
 
+    -FromStyle takes more than one style, which converted HTML usually needs:
+    an <h2> above one table and an <h3> above the next both land on their own
+    heading style, and an HTML <caption> inside a table comes through pandoc on
+    Caption. Numbering runs in document order across the whole set, so mixing
+    the levels does not disturb the sequence.
+
     The result matches the production NCSTAR chapters exactly:
 
         Table 4-1.  Income Data Used for Weighting
@@ -44,15 +50,17 @@
     Folder of Word files. All .docx/.dotx/.docm/.dotm in it are processed.
 
 .PARAMETER FromStyle
-    StyleId of the paragraphs to convert. Defaults to Heading1.
+    StyleIds of the paragraphs to convert. Defaults to Heading1. Takes a list:
+    -FromStyle Heading1,Heading2,Caption . A paragraph on any of them that sits
+    directly above a table becomes a caption.
 
 .PARAMETER Style
     StyleId of the caption style to apply. Defaults to CaptionTable, whose
     style name in the NIST template is Caption_Table.
 
 .PARAMETER Chapter
-    Chapter number written before the dash. Defaults to 1. Ignored when
-    -UseStyleRef is passed.
+    Chapter number written before the dash. Defaults to 1. Digits, or a single
+    letter for an appendix. Ignored when -UseStyleRef is passed.
 
 .PARAMETER UseStyleRef
     Emit a STYLEREF 1 \s field for the chapter number instead of literal text,
@@ -65,6 +73,17 @@
 .PARAMETER SeqName
     The SEQ sequence name. Defaults to Table. Keep it aligned with the rest of
     the document so numbering is continuous.
+
+.PARAMETER StripLeadingNumber
+    Drop the number the source already put at the front of the title, so the
+    caption does not read "Table 5-1.  1 Sample Characteristics". Converted
+    HTML normally carries one, because the generator numbered its own tables.
+
+    Only stripped when the leading number equals the number this caption is
+    being given. A title like "2020 Enrollment Data" landing on table 3 keeps
+    its 2020, because 2020 is not 3. If the source numbering is offset from the
+    caption sequence nothing is stripped, which shows up as a visible doubled
+    number rather than as silently deleted text.
 
 .PARAMETER ListOnly
     Report which paragraphs would become captions and write nothing. Worth a
@@ -83,6 +102,11 @@
     .\Set-NISTTableCaptions.ps1 -File "descriptivetabs.docx" -Chapter 1
 
 .EXAMPLE
+    # Converted HTML, where the headers above the tables are not all one level
+    # and pandoc put any <caption> elements on Caption.
+    .\Set-NISTTableCaptions.ps1 -File "tables.docx" -FromStyle Heading1,Heading2,Caption -Chapter 5
+
+.EXAMPLE
     # Once merged into a real chapter, let the chapter number track the heading.
     .\Set-NISTTableCaptions.ps1 -File "Chapter-05.docx" -UseStyleRef
 #>
@@ -95,10 +119,13 @@ param(
     [Parameter(Mandatory=$true, ParameterSetName='Folder')]
     [string]$Folder,
 
-    [string]$FromStyle = 'Heading1',
+    [string[]]$FromStyle = @('Heading1'),
 
     [string]$Style = 'CaptionTable',
 
+    # Digits, or a single letter for an appendix (Table A-1). Anything else is
+    # a mistake that would otherwise be written into every caption in the file.
+    [ValidatePattern('^([0-9]+|[A-Za-z])$')]
     [string]$Chapter = '1',
 
     [switch]$UseStyleRef,
@@ -106,6 +133,8 @@ param(
     [string]$Label = 'Table',
 
     [string]$SeqName = 'Table',
+
+    [switch]$StripLeadingNumber,
 
     [switch]$ListOnly,
 
@@ -117,6 +146,12 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+# One alternation over every -FromStyle, so a mixed set of heading levels is
+# found in a single document-order pass and the numbering stays sequential.
+$fromAlt      = ($FromStyle | ForEach-Object { [regex]::Escape($_) }) -join '|'
+$fromStyleRx  = '<w:pStyle\s[^>]*w:val="(?:' + $fromAlt + ')"[^>]*/>'
+$fromStyleTxt = $FromStyle -join ', '
 
 $NBSP   = [char]0x00A0
 $ENDASH = [char]0x2013
@@ -141,7 +176,7 @@ $sample = if ($UseStyleRef) { "$Label$NBSP{STYLEREF 1 \s}$ENDASH{SEQ $SeqName}. 
           else              { "$Label$NBSP$Chapter$ENDASH{SEQ $SeqName}.  <title>" }
 
 Write-Host "Set NIST Table Captions" -ForegroundColor Cyan
-Write-Host "  Converts $FromStyle paragraphs that sit directly above a table into $Style." -ForegroundColor Cyan
+Write-Host "  Converts $fromStyleTxt paragraphs that sit directly above a table into $Style." -ForegroundColor Cyan
 Write-Host "  Caption form: $sample" -ForegroundColor Cyan
 Write-Host "  Headings not followed by a table are left alone." -ForegroundColor Cyan
 Write-Host "  Targets:" -ForegroundColor Cyan
@@ -170,7 +205,10 @@ function Get-CaptionRuns {
 
     if ($UseStyleRef) {
         [void]$sb.Append('<w:r><w:fldChar w:fldCharType="begin"/></w:r>')
-        [void]$sb.Append('<w:r><w:instrText xml:space="preserve">STYLEREF 1 \s </w:instrText></w:r>')
+        # Byte-for-byte what the production chapters carry: no xml:space, no
+        # trailing space. \s returns the %1 of the heading's number, so a
+        # Heading 1 numbered "Chapter 4" yields "4", not "Chapter 4".
+        [void]$sb.Append('<w:r><w:instrText>STYLEREF 1 \s</w:instrText></w:r>')
         [void]$sb.Append('<w:r><w:fldChar w:fldCharType="separate"/></w:r>')
         [void]$sb.Append("<w:r><w:rPr><w:noProof/></w:rPr><w:t>$Chapter</w:t></w:r>")
         [void]$sb.Append('<w:r><w:fldChar w:fldCharType="end"/></w:r>')
@@ -190,6 +228,45 @@ function Get-CaptionRuns {
     # Period and the two spaces the production chapters use before the title.
     [void]$sb.Append('<w:r><w:t xml:space="preserve">.  </w:t></w:r>')
 
+    return $sb.ToString()
+}
+
+function Remove-SourceNumber {
+    # Drop a leading "<n>", "<n>.", or "<n>)" plus its whitespace from the
+    # title, but only when <n> is the number this caption is being given.
+    #
+    # The number is rarely in one run. A converter splits "1 Sample
+    # Characteristics" into three: "1", " ", and the title. So the text of every
+    # w:t is joined, the prefix is measured against the whole, and that many
+    # characters are then consumed run by run.
+    param([string]$Para, [int]$Number)
+
+    $ts = [regex]::Matches($Para, '(?s)(<w:t(?:\s[^>]*)?>)(.*?)(</w:t>)')
+    if ($ts.Count -eq 0) { return $Para }
+
+    $joined = -join ($ts | ForEach-Object { $_.Groups[2].Value })
+    $lead = [regex]::Match($joined, '^\s*(\d+)\s*[.)]?(?:\s|\u00A0)+')
+    if (-not $lead.Success) { return $Para }
+    if ([int]$lead.Groups[1].Value -ne $Number) { return $Para }
+
+    # Characters are counted front to back, so each run's new text is worked out
+    # first; the paragraph is then rebuilt back to front so offsets stay valid.
+    $newTexts = New-Object 'System.Collections.Generic.List[string]'
+    $left = $lead.Length
+    foreach ($t in $ts) {
+        $txt = $t.Groups[2].Value
+        if ($left -le 0) { [void]$newTexts.Add($txt); continue }
+        if ($left -ge $txt.Length) { $left -= $txt.Length; [void]$newTexts.Add('') }
+        else { [void]$newTexts.Add($txt.Substring($left)); $left = 0 }
+    }
+
+    $sb = New-Object System.Text.StringBuilder $Para
+    for ($i = $ts.Count - 1; $i -ge 0; $i--) {
+        $t = $ts[$i]
+        $replacement = $t.Groups[1].Value + $newTexts[$i] + $t.Groups[3].Value
+        [void]$sb.Remove($t.Index, $t.Length)
+        [void]$sb.Insert($t.Index, $replacement)
+    }
     return $sb.ToString()
 }
 
@@ -268,7 +345,7 @@ foreach ($target in $targets) {
         $el = $elements[$i]
         if ($el.Kind -ne 'p' -or $el.Empty) { continue }
         $para = $body.Substring($el.Start, $el.End - $el.Start)
-        if (-not [regex]::IsMatch($para, '<w:pStyle\s[^>]*w:val="' + [regex]::Escape($FromStyle) + '"')) { continue }
+        if (-not [regex]::IsMatch($para, $fromStyleRx)) { continue }
 
         $j = $i + 1
         while ($j -lt $elements.Count -and $elements[$j].Kind -eq 'p') {
@@ -282,7 +359,7 @@ foreach ($target in $targets) {
 
     $tableCount = ($elements | Where-Object { $_.Kind -eq 'tbl' }).Count
     Write-Host "  Top-level tables: $tableCount" -ForegroundColor Gray
-    Write-Host "  $FromStyle paragraphs directly above a table: $($captions.Count)" -ForegroundColor Gray
+    Write-Host "  $fromStyleTxt paragraphs directly above a table: $($captions.Count)" -ForegroundColor Gray
 
     # Print the titles. A section heading that happens to sit above a table
     # matches the same rule as a caption; the text is the only thing that tells
@@ -306,6 +383,7 @@ foreach ($target in $targets) {
     # front to back first.
     $numbers = @{}
     for ($n = 0; $n -lt $captions.Count; $n++) { $numbers[$captions[$n]] = $n + 1 }
+    $stripped = 0
 
     $sb = New-Object System.Text.StringBuilder $body
     for ($n = $captions.Count - 1; $n -ge 0; $n--) {
@@ -313,10 +391,16 @@ foreach ($target in $targets) {
         $el   = $elements[$idx]
         $para = $body.Substring($el.Start, $el.End - $el.Start)
 
+        if ($StripLeadingNumber) {
+            $before = $para
+            $para = Remove-SourceNumber -Para $para -Number $numbers[$idx]
+            if ($para -ne $before) { $stripped++ }
+        }
+
         # Point the paragraph at the caption style.
         $newPara = [regex]::Replace(
             $para,
-            '<w:pStyle\s[^>]*w:val="' + [regex]::Escape($FromStyle) + '"[^>]*/>',
+            $fromStyleRx,
             "<w:pStyle w:val=`"$Style`"/>",
             1)
 
@@ -334,6 +418,7 @@ foreach ($target in $targets) {
     $newBody = $sb.ToString()
     $newXml  = $xml.Remove($bodyStart, $body.Length).Insert($bodyStart, $newBody)
 
+    if ($StripLeadingNumber) { Write-Host "  Source numbers dropped from the title: $stripped" -ForegroundColor DarkGray }
     Write-Host "  Captions written: $($captions.Count) ($Label$NBSP$(if($UseStyleRef){'{STYLEREF}'}else{$Chapter})$ENDASH`1 through $($captions.Count))" -ForegroundColor Gray
 
     if (-not $Force -and (Test-Path -LiteralPath "$target.captions.bak")) {

@@ -5,7 +5,16 @@
     folds pandoc's styles into NIST styles, then the full NIST build pipeline.
 
 .DESCRIPTION
-    Three stages, in this order:
+    Five stages, in this order:
+
+      0. prep    - for HTML sources only, rewrites CSS-only inline formatting
+                   into real tags before pandoc sees it. Generators like R
+                   flextable emit no <strong>, <em>, or <sup> at all: every run
+                   is a <span class="cl-xxxx"> whose formatting lives only in
+                   the generated stylesheet, and pandoc reads tags, not CSS, so
+                   bold and superscripts are otherwise flattened without a
+                   warning. The source file is not touched - the repair is done
+                   on a working copy that is deleted afterwards.
 
       1. pandoc  - converts each source file to .docx using -ReferenceDoc, so
                    the output starts with the NIST theme, page setup, headers
@@ -21,6 +30,57 @@
       3. build   - runs Build-NISTDocuments.ps1 on the output folder, which
                    applies theme, styles, page layout, table look, typography,
                    and font de-embedding.
+
+      4. tables  - finishes the tables, which the generic pipeline cannot do
+                   because its settings are tuned for hand-authored NCSTAR
+                   documents rather than converted statistical output:
+
+                     - Table Style Options are set: Header Row on, Banded
+                       Rows on, everything else off. First Column stays off -
+                       turning it on is what bolds and shades column 1. Each
+                       option is a parameter. Every table is also pinned to the
+                       width its own grid adds up to, with a fixed layout,
+                       because a converted table arrives on autofit and two
+                       tables with an identical grid otherwise render at
+                       different widths. The statistical tables - the ones
+                       whose header is Characteristic / N / % - are set to
+                       2.7 / 0.6 / 0.6, at all three levels Word reads:
+                       tblGrid, tblW, and every cell's tcW. The width is what
+                       it is so the full-width green banner rows do not wrap.
+                     - cell paragraphs are moved onto Table Text with
+                       Set-TableParagraphStyle.ps1, which rewrites w:pStyle and
+                       nothing else, so bold, superscripts, subscripts and
+                       w:ind all survive. The one exception is -UnboldColumns,
+                       which strips direct bold from column 1 of the body rows:
+                       converted group labels arrive bold, and because it is
+                       direct run formatting no Table Style Option can turn it
+                       off. The header row keeps its bold.
+                     - the row-hierarchy indentation pandoc drops is rebuilt
+                       from the source's leading whitespace with
+                       Restore-TableIndents.ps1.
+                     - the group-label banner rows inside each table - the
+                       full-width merged rows that title a group rather than
+                       carry data - are shaded and bolded by
+                       Set-TableBannerRows.ps1. It runs after the footnote
+                       merge, which is what separates the two kinds of
+                       full-width row from each other.
+                     - the note rows at the foot of each table are collapsed
+                       into one unshaded full-width row with
+                       Merge-TableFootnotes.ps1. -SkipTableFootnotes turns it
+                       off.
+                     - the header sitting above each table becomes a
+                       Caption_Table paragraph carrying the NIST number
+                       (Table 5-1.  Title), with the table number as a SEQ
+                       field, via Set-NISTTableCaptions.ps1. Any number the
+                       source already put in the title is dropped, so the
+                       caption does not read "Table 5-1.  1 Title".
+                       -SkipTableCaptions turns it off.
+
+                   Both of those last two decide by shape what a thing means, so
+                   check a new document set once: a table ending in a banner row
+                   looks like a footnote, and a section heading sitting above a
+                   table looks like a caption. Run each script alone with
+                   -ListOnly to see what it would take.
 
     The order matters. Stage 3's style step deletes styles it does not
     recognize but never touches document.xml, so a paragraph still pointing at
@@ -59,6 +119,106 @@
     Table style to assign to converted tables. Defaults to NIST-Data. Pass an
     empty string to leave pandoc's table styling alone.
 
+.PARAMETER HeaderRow
+    Header Row table style option on the converted tables. Default $false.
+
+.PARAMETER TotalRow
+    Total Row table style option. Default $false.
+
+.PARAMETER FirstColumn
+    First Column table style option. Default $false.
+
+.PARAMETER LastColumn
+    Last Column table style option. Default $false.
+
+.PARAMETER BandedRows
+    Banded Rows table style option. Default $false.
+
+.PARAMETER BandedColumns
+    Banded Columns table style option. Default $true.
+
+.PARAMETER RepeatHeaderRow
+    Repeat the first row across page breaks. Default $true. This is a page-break
+    behavior, separate from the Header Row checkbox, so it stays on even with
+    -HeaderRow $false.
+
+.PARAMETER TableTextStyle
+    StyleId put on every paragraph inside a table. Default TableText. Pass an
+    empty string to leave cell paragraph styles alone.
+
+.PARAMETER UnboldColumns
+    Column numbers to strip direct bold from in stage 4, body rows only.
+    Defaults to column 1, where converted statistical tables put their group
+    labels. Pass an empty array to leave all bold alone.
+
+.PARAMETER AutoFitTables
+    Leave the tables on Word's autofit instead of pinning them to a width.
+    By default each table is pinned to the width its own grid adds up to, with
+    a fixed layout, so two tables with the same grid render the same width.
+
+.PARAMETER TableWidthInches
+    Pin every table to this width instead of to its own grid, rescaling the
+    columns in proportion. The NIST text column is 6.5 inches.
+
+.PARAMETER ColumnWidthsInches
+    Exact per-column widths for the statistical tables, defaulting to the
+    1.5 / 0.6 / 0.6 the NCSTAR and NWIRP chapters use. Applied only to tables
+    whose column count matches and whose header row matches -MatchHeader, so
+    every other table keeps its own grid. Pass @() to leave them all alone.
+
+.PARAMETER MatchHeader
+    The header row that identifies a statistical table, cell for cell.
+    Defaults to Characteristic, N, %.
+
+.PARAMETER SkipTableBanners
+    Do not shade and bold the group-label banner rows inside each table.
+
+.PARAMETER BannerFill
+    Cell fill for a banner row, six hex digits. Default CCECE3.
+
+.PARAMETER SkipTableFootnotes
+    Do not collapse each table's footnote rows into a single full-width row.
+
+.PARAMETER FootnoteStyle
+    Paragraph style for the merged table notes. Default TableandFigureFootnotes.
+
+.PARAMETER SkipTableCaptions
+    Do not turn the header above each table into a numbered Caption_Table
+    paragraph.
+
+.PARAMETER KeepSourceNumbers
+    Keep any number the source already put at the front of a table title.
+    By default it is dropped, and only when it matches the number the caption
+    is being given.
+
+.PARAMETER CaptionFromStyle
+    StyleIds the table headers are on. Defaults to Heading1. Takes a list:
+    converted HTML often mixes levels, and an HTML <caption> element comes
+    through pandoc on Caption. -CaptionFromStyle Heading1,Heading2,Caption
+
+.PARAMETER CaptionStyle
+    Caption style to apply. Default CaptionTable (Caption_Table in the template).
+
+.PARAMETER CaptionChapter
+    Write the chapter number as this literal value instead of as a field.
+    Passing it at all is what selects a literal, so a multi-chapter batch
+    converted in one run should leave it alone. Digits, or a single letter for
+    an appendix.
+
+.PARAMETER CaptionUseStyleRef
+    Write the chapter number as a STYLEREF field. This is the default, and the
+    parameter is only needed to force a field alongside an explicit
+    -CaptionChapter. The field reads the Heading 1 the caption sits under, so
+    the number is right wherever the content is later merged; before the merge,
+    a standalone extract with no Heading 1 shows a field error until it lands
+    in a chapter.
+
+.PARAMETER SkipInlineRepair
+    Skip stage 0. Use for HTML that already carries real <strong>/<em>/<sup>.
+
+.PARAMETER SkipTableIndents
+    Skip the indent rebuild in stage 4.
+
 .PARAMETER RemapLists
     Also convert pandoc's direct list numbering to the NIST List Bullet and
     List Number ladders. Off by default: it gives bullets the NIST ladder
@@ -86,7 +246,7 @@
 
 .PARAMETER SkipPipeline
     Stop after stage 2. Use to inspect the converted files before the NIST
-    build runs.
+    build runs. Stage 4 is part of the build, so it is skipped too.
 
 .PARAMETER LegacyStyleFix
     Run the pipeline's style step in full legacy-fix mode instead of -Clean.
@@ -123,6 +283,68 @@ param(
 
     [string]$TableStyle = 'NIST-Data',
 
+    # Table Style Options for converted tables: the standard report look, same
+    # as Set-TableLook.ps1's own defaults. First Column stays off - turning it
+    # on is what bolds and shades the first column.
+    [bool]$HeaderRow       = $true,
+    [bool]$TotalRow        = $false,
+    [bool]$FirstColumn     = $false,
+    [bool]$LastColumn      = $false,
+    [bool]$BandedRows      = $true,
+    [bool]$BandedColumns   = $false,
+    [bool]$RepeatHeaderRow = $true,
+
+    [string]$TableTextStyle = 'TableText',
+
+    # Off by default. The bold full-width rows in a converted statistical table
+    # are group-label banners, and they are meant to be bold - see
+    # Set-TableBannerRows.ps1, which shades them to match.
+    [int[]]$UnboldColumns = @(),
+
+    # Converted tables arrive as tblW auto, so Word sizes them from their
+    # contents and identical grids still render at different widths.
+    [switch]$AutoFitTables,
+
+    [double]$TableWidthInches = 0,
+
+    # The NCSTAR/NWIRP statistical table shape. Gated on the header, so a table
+    # that is not one of these is never touched.
+    #
+    # The two small columns are equal and stay at 0.6, which clears the widest
+    # value in either of them (%, at 0.402 including cell margins). Column 1
+    # takes the rest, and the rest is set by the GREEN BANNER rows rather than
+    # by column 1's own labels: a banner spans all three columns, and the widest
+    # one measures 3.685 in of bold Source Sans Pro 9pt, so the table has to
+    # reach 3.745 in for it to stay on one line. 2.7/0.6/0.6 gives 3.9 in, which
+    # clears it with room to spare. Column 1's own labels only need 1.513 in.
+    [double[]]$ColumnWidthsInches = @(2.7, 0.6, 0.6),
+
+    [string[]]$MatchHeader = @('Characteristic', 'N', '%'),
+
+    [switch]$SkipTableBanners,
+
+    [string]$BannerFill = 'CCECE3',
+
+    [switch]$SkipTableFootnotes,
+
+    [string]$FootnoteStyle = 'TableandFigureFootnotes',
+
+    [switch]$SkipTableCaptions,
+
+    [string[]]$CaptionFromStyle = @('Heading1'),
+
+    [string]$CaptionStyle = 'CaptionTable',
+
+    [string]$CaptionChapter = '1',
+
+    [switch]$CaptionUseStyleRef,
+
+    [switch]$KeepSourceNumbers,
+
+    [switch]$SkipInlineRepair,
+
+    [switch]$SkipTableIndents,
+
     [switch]$RemapLists,
 
     [string]$Bibliography,
@@ -152,6 +374,24 @@ $ooXmlModule = Join-Path $PSScriptRoot 'OoXml\OoXml.psd1'
 Import-Module $ooXmlModule -Force
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+# ---------------------------------------------------------------------------
+# Argument sanity, before anything slow runs
+#
+# -CaptionChapter takes a value, so "-CaptionChapter 1-Force" binds the whole
+# string "1-Force" as the chapter and silently drops -Force. Left unchecked
+# that reaches stage 4 and writes "Table 1-Force-1." into every caption in the
+# file, after pandoc has already done all the work.
+# ---------------------------------------------------------------------------
+
+if ($PSBoundParameters.ContainsKey('CaptionChapter') -and
+    $CaptionChapter -notmatch '^([0-9]+|[A-Za-z])$') {
+    $msg = "-CaptionChapter must be digits, or a single letter for an appendix. Got: '$CaptionChapter'."
+    if ($CaptionChapter -match '^([0-9A-Za-z]+)-([A-Za-z]+)$') {
+        $msg += "`n  That looks like a missing space: -CaptionChapter $($Matches[1]) -$($Matches[2])"
+    }
+    throw $msg
+}
 
 # ---------------------------------------------------------------------------
 # Source format per extension
@@ -283,9 +523,14 @@ if ($Csl) {
 # Confirm
 # ---------------------------------------------------------------------------
 
-$stages = @('1. pandoc convert')
+$htmlSources = @($sources | Where-Object { [System.IO.Path]::GetExtension($_).ToLowerInvariant() -match '^\.(html|htm|xhtml)$' })
+
+$stages = @()
+if (-not $SkipInlineRepair -and $htmlSources.Count -gt 0) { $stages += '0. inline formatting' }
+$stages += '1. pandoc convert'
 if (-not $SkipRemap)    { $stages += '2. remap pandoc styles to NIST' }
 if (-not $SkipPipeline) { $stages += '3. Build-NISTDocuments' + $(if ($LegacyStyleFix) { ' (full style fix)' } else { ' (-Clean)' }) }
+if (-not $SkipPipeline) { $stages += '4. tables' }
 
 Write-Host "Convert to NIST Word" -ForegroundColor Cyan
 Write-Host "  Reference doc: $ReferenceDoc" -ForegroundColor Cyan
@@ -364,6 +609,7 @@ function Get-StyleIdMap {
 # ---------------------------------------------------------------------------
 
 $converted = @()
+$sourceOf  = @{}
 
 foreach ($src in $sources) {
     $ext     = [System.IO.Path]::GetExtension($src).ToLowerInvariant()
@@ -391,6 +637,26 @@ foreach ($src in $sources) {
         }
     }
 
+    # ---- Stage 0: HTML inline-formatting repair ----
+    # pandoc reads tags, not CSS. Rewrite class-only bold/italic/super/sub into
+    # real tags first, on a working copy in the source folder so that relative
+    # image paths still resolve. $pandocSrc is what pandoc actually reads.
+    $pandocSrc = $src
+    $prepFile  = $null
+    if (-not $SkipInlineRepair -and $ext -match '^\.(html|htm|xhtml)$') {
+        $repair = Join-Path $PSScriptRoot 'Repair-HtmlInlineFormatting.ps1'
+        if (-not (Test-Path -LiteralPath $repair -PathType Leaf)) {
+            Write-Warning "  Repair-HtmlInlineFormatting.ps1 not found; CSS-only bold and superscripts will be lost."
+        } else {
+            $prepFile = Join-Path $srcDir ([System.IO.Path]::GetFileNameWithoutExtension($src) + '.nistprep' + $ext)
+            Copy-Item -LiteralPath $src -Destination $prepFile -Force
+            Write-Host "  ---- Stage 0: inline formatting ----" -ForegroundColor DarkGray
+            & $repair -File $prepFile -Force | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+            Remove-Item -LiteralPath "$prepFile.inline.bak" -Force -ErrorAction SilentlyContinue
+            $pandocSrc = $prepFile
+        }
+    }
+
     # ---- Stage 1: pandoc ----
     $argList = @(
         '--from',          $from,
@@ -403,7 +669,7 @@ foreach ($src in $sources) {
     if ($Bibliography)  { $argList += @('--citeproc', '--bibliography', $Bibliography) }
     if ($Csl)           { $argList += @('--csl', $Csl) }
     if ($PandocArgs)    { $argList += $PandocArgs }
-    $argList += $src
+    $argList += $pandocSrc
 
     Write-Host "  pandoc $($argList -join ' ')" -ForegroundColor DarkGray
     # Native stderr redirected into the output stream surfaces as ErrorRecords,
@@ -416,6 +682,7 @@ foreach ($src in $sources) {
     } finally {
         $ErrorActionPreference = $prevEAP
     }
+    if ($prepFile) { Remove-Item -LiteralPath $prepFile -Force -ErrorAction SilentlyContinue }
     if ($LASTEXITCODE -ne 0) {
         $pandocOut | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
         throw "pandoc failed on $src (exit $LASTEXITCODE)."
@@ -423,6 +690,7 @@ foreach ($src in $sources) {
     if ($pandocOut) { $pandocOut | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow } }
     Write-Host "  Converted -> $outFile" -ForegroundColor Green
     $converted += $outFile
+    $sourceOf[$outFile] = $src
 
     if ($SkipRemap) { continue }
 
@@ -608,6 +876,134 @@ Write-Host "===== Stage 3: NIST build pipeline =====" -ForegroundColor Green
 $pipeArgs = @{ Folder = $OutputFolder; Force = $true }
 if (-not $LegacyStyleFix) { $pipeArgs['Clean'] = $true }
 & $pipeline @pipeArgs
+
+# ---------------------------------------------------------------------------
+# Stage 4: finish the tables
+#
+# Build-NISTDocuments ran Set-TableLook with ITS defaults, which are the
+# hand-authored NCSTAR look (Header Row on, Banded Rows on). Converted
+# statistical tables want the other set, so this re-runs it with the
+# parameters, then puts the cell text on Table Text and rebuilds the row
+# indentation pandoc dropped. Order matters: the style move has to happen
+# before the indents, because Set-TableParagraphStyle preserves w:ind but only
+# the paragraphs it leaves in place.
+# ---------------------------------------------------------------------------
+
+Write-Host ""
+Write-Host "===== Stage 4: tables =====" -ForegroundColor Green
+
+$tableLook    = Join-Path $PSScriptRoot 'Set-TableLook.ps1'
+$tableParaSty = Join-Path $PSScriptRoot 'Set-TableParagraphStyle.ps1'
+$tableIndents = Join-Path $PSScriptRoot 'Restore-TableIndents.ps1'
+$tableFootnts = Join-Path $PSScriptRoot 'Merge-TableFootnotes.ps1'
+$tableCaption = Join-Path $PSScriptRoot 'Set-NISTTableCaptions.ps1'
+$tableBanners = Join-Path $PSScriptRoot 'Set-TableBannerRows.ps1'
+
+foreach ($outFile in $converted) {
+    Write-Host ""
+    Write-Host "  $([System.IO.Path]::GetFileName($outFile))" -ForegroundColor Yellow
+
+    $lookArgs = @{
+        File            = $outFile
+        Force           = $true
+        HeaderRow       = $HeaderRow
+        TotalRow        = $TotalRow
+        FirstColumn     = $FirstColumn
+        LastColumn      = $LastColumn
+        BandedRows      = $BandedRows
+        BandedColumns   = $BandedColumns
+        RepeatHeaderRow = $RepeatHeaderRow
+    }
+    if (-not $AutoFitTables) {
+        $lookArgs['FixedWidth'] = $true
+        if ($TableWidthInches -gt 0) { $lookArgs['TableWidthInches'] = $TableWidthInches }
+        if ($ColumnWidthsInches.Count -gt 0) {
+            $lookArgs['ColumnWidthsInches'] = $ColumnWidthsInches
+            if ($MatchHeader.Count -gt 0) { $lookArgs['MatchHeader'] = $MatchHeader }
+        }
+    }
+    & $tableLook @lookArgs
+
+    if ($TableTextStyle) {
+        if (Test-Path -LiteralPath $tableParaSty -PathType Leaf) {
+            $paraArgs = @{ File = $outFile; Style = $TableTextStyle; Force = $true }
+            if ($UnboldColumns.Count -gt 0) { $paraArgs['UnboldColumns'] = $UnboldColumns }
+            & $tableParaSty @paraArgs
+        } else {
+            Write-Warning "  Set-TableParagraphStyle.ps1 not found; cell paragraphs left on the converter's styles."
+        }
+    }
+
+    if (-not $SkipTableIndents -and (Test-Path -LiteralPath $tableIndents -PathType Leaf)) {
+        # A .docx source still has the leading tabs to map from; HTML output
+        # carries the hierarchy as leading spaces in the target itself.
+        $origin = $sourceOf[$outFile]
+        $indentArgs = @{ Target = $outFile; Force = $true }
+        if ($origin -and [System.IO.Path]::GetExtension($origin).ToLowerInvariant() -eq '.docx') {
+            $indentArgs['Source'] = $origin
+        }
+        try {
+            & $tableIndents @indentArgs
+        } catch {
+            Write-Warning "  Indent rebuild skipped: $($_.Exception.Message)"
+        }
+    }
+
+    # Footnote rows last: it rewrites whole rows, so it wants the cell style
+    # and the indents already settled. Off unless asked for - the rows are
+    # found by shape, and a table ending in a banner row matches the same rule.
+    if (-not $SkipTableFootnotes) {
+        if (Test-Path -LiteralPath $tableFootnts -PathType Leaf) {
+            $fnArgs = @{ File = $outFile; Style = $FootnoteStyle; Force = $true }
+            # An HTML original carries the notes in <tfoot>, which identifies
+            # them exactly instead of by row shape.
+            $origin = $sourceOf[$outFile]
+            if ($origin -and [System.IO.Path]::GetExtension($origin).ToLowerInvariant() -match '^\.(html|htm|xhtml)$') {
+                $fnArgs['SourceHtml'] = $origin
+            }
+            & $tableFootnts @fnArgs
+        } else {
+            Write-Warning "  Merge-TableFootnotes.ps1 not found; table note rows left as separate rows."
+        }
+    }
+
+    # Banners after the footnote merge, which is what tells the two kinds of
+    # full-width merged row apart: the notes are on the footnote style by now,
+    # so whatever is still full-width and unclaimed is a group label.
+    if (-not $SkipTableBanners) {
+        if (Test-Path -LiteralPath $tableBanners -PathType Leaf) {
+            & $tableBanners -File $outFile -Fill $BannerFill -Force
+        } else {
+            Write-Warning "  Set-TableBannerRows.ps1 not found; group-label rows left unshaded."
+        }
+    }
+
+    # Captions last. The caption style only exists once stage 3 has applied the
+    # style architecture, and the script refuses to run without it rather than
+    # write a reference that renders as Normal.
+    if (-not $SkipTableCaptions) {
+        if (Test-Path -LiteralPath $tableCaption -PathType Leaf) {
+            $capArgs = @{
+                File      = $outFile
+                FromStyle = $CaptionFromStyle
+                Style     = $CaptionStyle
+                Chapter   = $CaptionChapter
+                Force     = $true
+            }
+            # The chapter number is a STYLEREF field by default, so each
+            # caption reads the chapter it actually lands under instead of
+            # carrying a number baked in at conversion time. Passing an
+            # explicit -CaptionChapter is what asks for a literal.
+            $literalChapter = $PSBoundParameters.ContainsKey('CaptionChapter')
+            if ($CaptionUseStyleRef -or -not $literalChapter) { $capArgs['UseStyleRef'] = $true }
+            # Converted sources normally number their own tables in the title.
+            if (-not $KeepSourceNumbers) { $capArgs['StripLeadingNumber'] = $true }
+            & $tableCaption @capArgs
+        } else {
+            Write-Warning "  Set-NISTTableCaptions.ps1 not found; table headers left as headings."
+        }
+    }
+}
 
 Write-Host ""
 Write-Host "Done. $($converted.Count) file(s) converted and built:" -ForegroundColor Green
