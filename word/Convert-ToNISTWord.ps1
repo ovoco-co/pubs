@@ -880,6 +880,10 @@ if (-not $LegacyStyleFix) { $pipeArgs['Clean'] = $true }
 # ---------------------------------------------------------------------------
 # Stage 4: finish the tables
 #
+# Every step here is optional polish on a document that is already converted and
+# built. One of them failing must not abandon the others, or a file with no
+# table notes loses its captions too, so each is caught and reported.
+#
 # Build-NISTDocuments ran Set-TableLook with ITS defaults, which are the
 # hand-authored NCSTAR look (Header Row on, Banded Rows on). Converted
 # statistical tables want the other set, so this re-runs it with the
@@ -961,7 +965,8 @@ foreach ($outFile in $converted) {
             if ($origin -and [System.IO.Path]::GetExtension($origin).ToLowerInvariant() -match '^\.(html|htm|xhtml)$') {
                 $fnArgs['SourceHtml'] = $origin
             }
-            & $tableFootnts @fnArgs
+            try { & $tableFootnts @fnArgs }
+            catch { Write-Warning "  Footnote merge skipped: $($_.Exception.Message)" }
         } else {
             Write-Warning "  Merge-TableFootnotes.ps1 not found; table note rows left as separate rows."
         }
@@ -972,7 +977,8 @@ foreach ($outFile in $converted) {
     # so whatever is still full-width and unclaimed is a group label.
     if (-not $SkipTableBanners) {
         if (Test-Path -LiteralPath $tableBanners -PathType Leaf) {
-            & $tableBanners -File $outFile -Fill $BannerFill -Force
+            try { & $tableBanners -File $outFile -Fill $BannerFill -Force }
+            catch { Write-Warning "  Banner shading skipped: $($_.Exception.Message)" }
         } else {
             Write-Warning "  Set-TableBannerRows.ps1 not found; group-label rows left unshaded."
         }
@@ -998,7 +1004,8 @@ foreach ($outFile in $converted) {
             if ($CaptionUseStyleRef -or -not $literalChapter) { $capArgs['UseStyleRef'] = $true }
             # Converted sources normally number their own tables in the title.
             if (-not $KeepSourceNumbers) { $capArgs['StripLeadingNumber'] = $true }
-            & $tableCaption @capArgs
+            try { & $tableCaption @capArgs }
+            catch { Write-Warning "  Caption step skipped: $($_.Exception.Message)" }
         } else {
             Write-Warning "  Set-NISTTableCaptions.ps1 not found; table headers left as headings."
         }

@@ -57,6 +57,11 @@
     turn off, because the bold is direct run formatting rather than the style's
     First Column option.
 
+.PARAMETER RightAlignColumns
+    Column numbers (1-based) to right-align, header row included. Money and
+    count columns read wrong ranged left, and pandoc drops the align attribute
+    off an HTML table, so the alignment has to be put back here.
+
 .PARAMETER UnboldIncludesHeader
     Include the first row when stripping bold with -UnboldColumns.
 
@@ -91,6 +96,8 @@ param(
     [string]$Style = 'TableText',
 
     [int[]]$UnboldColumns = @(),
+
+    [int[]]$RightAlignColumns = @(),
 
     [switch]$UnboldIncludesHeader,
 
@@ -272,9 +279,12 @@ foreach ($target in $targets) {
     # incremented inside one never reaches the caller, and the file then looks
     # like it had nothing to change.
     $unbolded = 0
-    if ($UnboldColumns.Count -gt 0) {
+    $aligned  = 0
+    if ($UnboldColumns.Count -gt 0 -or $RightAlignColumns.Count -gt 0) {
         $wanted = @{}
         foreach ($c in $UnboldColumns) { $wanted[[int]$c] = $true }
+        $wantRight = @{}
+        foreach ($c in $RightAlignColumns) { $wantRight[[int]$c] = $true }
 
         $sb2  = New-Object System.Text.StringBuilder $newXml
         $base = $newXml
@@ -299,7 +309,8 @@ foreach ($target in $targets) {
                 [void]$newChunk.Append($chunk.Substring($pos, $r.Index - $pos))
                 $pos = $r.Index + $r.Length
 
-                if ($rowIndex -eq 1 -and -not $UnboldIncludesHeader) {
+                $headerSkip = ($rowIndex -eq 1 -and -not $UnboldIncludesHeader)
+                if ($headerSkip -and $wantRight.Count -eq 0) {
                     [void]$newChunk.Append($r.Value)
                     continue
                 }
@@ -311,10 +322,32 @@ foreach ($target in $targets) {
                 foreach ($cm in [regex]::Matches($row, '(?s)<w:tc(?:\s[^>]*)?>(?:(?!</w:tc>).)*</w:tc>')) {
                     $col++
                     $cell = $cm.Value
-                    if ($wanted.ContainsKey($col)) {
+                    if ($wanted.ContainsKey($col) -and -not $headerSkip) {
                         $stripped = [regex]::Replace($cell, '<w:b(?:\s+w:val="(?:1|true|on)")?\s*/>', '')
                         $stripped = [regex]::Replace($stripped, '<w:bCs(?:\s+w:val="(?:1|true|on)")?\s*/>', '')
                         if ($stripped -ne $cell) { $unbolded++; $cell = $stripped }
+                    }
+                    if ($wantRight.ContainsKey($col)) {
+                        # w:jc lives in w:pPr, after w:pStyle. Replace an
+                        # existing one rather than adding a second.
+                        $before = $cell
+                        $cell = [regex]::Replace($cell, '(?s)<w:p(?:\s[^>]*)?>.*?</w:p>', {
+                            param($pm)
+                            $para = $pm.Value
+                            if ($para -match '<w:jc\b[^>]*/>') {
+                                return [regex]::Replace($para, '<w:jc\b[^>]*/>', '<w:jc w:val="right"/>', 1)
+                            }
+                            if ($para -match '(?s)<w:pPr(?:\s[^>]*)?>.*?</w:pPr>') {
+                                return [regex]::Replace($para, '(?s)(<w:pPr(?:\s[^>]*)?>)(.*?)(</w:pPr>)',
+                                    '${1}${2}<w:jc w:val="right"/>${3}', 1)
+                            }
+                            if ($para -match '<w:pPr\s*/>') {
+                                return [regex]::Replace($para, '<w:pPr\s*/>', '<w:pPr><w:jc w:val="right"/></w:pPr>', 1)
+                            }
+                            return [regex]::Replace($para, '^(<w:p(?:\s[^>]*)?>)',
+                                '${1}<w:pPr><w:jc w:val="right"/></w:pPr>', 1)
+                        })
+                        if ($cell -ne $before) { $aligned++ }
                     }
                     [void]$rowOut.Append($row.Substring($cellPos, $cm.Index - $cellPos))
                     [void]$rowOut.Append($cell)
@@ -338,11 +371,14 @@ foreach ($target in $targets) {
     if ($UnboldColumns.Count -gt 0) {
         Write-Host "  Bold stripped from column(s) $($UnboldColumns -join ', '): $unbolded cell(s)" -ForegroundColor Gray
     }
+    if ($RightAlignColumns.Count -gt 0) {
+        Write-Host "  Right-aligned column(s) $($RightAlignColumns -join ', '): $aligned cell(s)" -ForegroundColor Gray
+    }
     Write-Host "  Paragraphs restyled to ${Style}: $script:applied" -ForegroundColor Gray
     Write-Host "  Already on ${Style}: $script:already" -ForegroundColor DarkGray
     if ($script:kept -gt 0) { Write-Host "  Left on a -KeepStyles style: $script:kept" -ForegroundColor DarkGray }
 
-    if ($script:applied -eq 0 -and $unbolded -eq 0) {
+    if ($script:applied -eq 0 -and $unbolded -eq 0 -and $aligned -eq 0) {
         Write-Host "  Nothing to change. File unchanged." -ForegroundColor DarkGray
         continue
     }

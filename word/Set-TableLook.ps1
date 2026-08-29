@@ -671,18 +671,35 @@ foreach ($target in $targets) {
 
             $notes = @()
             if ($total -gt $MaxTableInches) {
-                # Share the text column out in proportion to the measured need,
-                # never below a floor, and put rounding drift on column 1.
-                $sumMin = ($minCol | Measure-Object -Sum).Sum
-                $floor  = 0.35
+                # Not enough room. Do NOT share it out in proportion: that
+                # shrinks a money or count column below the width of its own
+                # digits, so every figure wraps, while the prose column - the
+                # one that can wrap harmlessly - is the one given the slack.
+                #
+                # Give every column exactly what it measured, and make the
+                # WIDEST column absorb the shortfall. A long name wrapping to
+                # two lines is normal; "$78,199,438,009" wrapping is not.
+                $sumMin  = ($minCol | Measure-Object -Sum).Sum
+                $floor   = 0.35
+                $widest  = 0
+                for ($i = 1; $i -lt $g.Cols; $i++) { if ($minCol[$i] -gt $minCol[$widest]) { $widest = $i } }
+
                 $widths = @()
-                foreach ($m in $minCol) {
-                    $w = [Math]::Round($MaxTableInches * $m / $sumMin, 2)
-                    $widths += [Math]::Max($floor, $w)
+                foreach ($m in $minCol) { $widths += [Math]::Round($m, 2) }
+                $over = (($widths | Measure-Object -Sum).Sum) - $MaxTableInches
+                $widths[$widest] = [Math]::Round($widths[$widest] - $over, 2)
+
+                # If taking it all off the widest column would leave it below
+                # the floor, fall back to proportional - nothing else fits.
+                if ($widths[$widest] -lt $floor) {
+                    $widths = @()
+                    foreach ($m in $minCol) {
+                        $widths += [Math]::Max($floor, [Math]::Round($MaxTableInches * $m / $sumMin, 2))
+                    }
+                    $drift = $MaxTableInches - (($widths | Measure-Object -Sum).Sum)
+                    $widths[$widest] = [Math]::Round($widths[$widest] + $drift, 2)
+                    if ($widths[$widest] -lt $floor) { $widths[$widest] = $floor }
                 }
-                $drift = $MaxTableInches - (($widths | Measure-Object -Sum).Sum)
-                $widths[0] = [Math]::Round($widths[0] + $drift, 2)
-                if ($widths[0] -lt $floor) { $widths[0] = $floor }
                 $total = ($widths | Measure-Object -Sum).Sum
 
                 if ($sumMin -gt $MaxTableInches) {

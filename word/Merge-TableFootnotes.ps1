@@ -147,7 +147,13 @@ if ($SourceHtml) {
             if ($bare) { [void]$footTexts.Add($bare) }
         }
     }
-    if ($footTexts.Count -eq 0) { throw "No <tfoot> rows found in $SourceHtml." }
+    # No <tfoot> is a normal document, not an error. Throwing here aborted the
+    # whole conversion, because Convert-ToNISTWord passes -SourceHtml for every
+    # HTML source whether or not that source has table notes.
+    if ($footTexts.Count -eq 0) {
+        Write-Host "  No <tfoot> rows in $SourceHtml, so this document has no table notes to merge." -ForegroundColor DarkGray
+        return
+    }
 }
 
 # ---------------------------------------------------------------------------
