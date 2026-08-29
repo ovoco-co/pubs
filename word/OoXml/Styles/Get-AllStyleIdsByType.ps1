@@ -21,5 +21,7 @@ function Get-AllStyleIdsByType {
     $rgx = [regex]::new($pattern)
     $ids = New-Object System.Collections.Generic.List[string]
     foreach ($m in $rgx.Matches($Xml)) { [void]$ids.Add($m.Groups[1].Value) }
-    return $ids
+    # Comma: without it an empty list returns $null and a one-element list
+    # returns a bare string. See Get-HeadingAbstractNumIds.
+    return ,$ids
 }

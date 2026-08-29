@@ -85,7 +85,7 @@ function Sort-RunPropertyOrder {
 
         $sorted = $items | Sort-Object Key, Seq
         return $open + (($sorted | ForEach-Object { $_.Xml }) -join '') + $close
-    }
+    }.GetNewClosure()   # $rank and $order must survive into the delegate call
 
     return [regex]::Replace($Block, '(?s)(<w:rPr(?:\s[^>]*?)?>)(.*?)(</w:rPr>)', $evaluator)
 }

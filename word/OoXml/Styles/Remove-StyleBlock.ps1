@@ -19,6 +19,9 @@ function Remove-StyleBlock {
     )
     $pattern = '(?si)<w:style\b[^>]*?\bw:styleId="' + [regex]::Escape($Id) + '"[^>]*?>.*?</w:style>\s*'
     $rgx = [regex]::new($pattern)
-    if (-not $rgx.IsMatch($Xml)) { return ,$Xml, $false }
+    # No leading comma: $Xml is a string, and ',$Xml, $false' would make
+    # element [0] a one-element Object[] instead of the string the caller
+    # assigns straight back to its own $xml.
+    if (-not $rgx.IsMatch($Xml)) { return $Xml, $false }
     return $rgx.Replace($Xml, '', 1), $true
 }
