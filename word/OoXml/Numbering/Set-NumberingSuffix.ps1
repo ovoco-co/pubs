@@ -27,6 +27,14 @@ function Set-NumberingSuffix {
         [string]$HeadingSuff = 'space',
         [string]$ListSuff = 'tab'
     )
+    # A null set means no heading is numbered, which is a normal document, not
+    # an error. Without this the evaluator below calls .Contains on null, and
+    # because it runs inside Regex.Replace the failure surfaces as the useless
+    # 'Exception calling "Replace" with "3" argument(s)' with no styleId in it.
+    if ($null -eq $HeadingAbstractNumIds) {
+        $HeadingAbstractNumIds = [System.Collections.Generic.HashSet[string]]::new()
+    }
+
     $abstractNumEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
         param($am)
         $whole = $am.Value
@@ -50,7 +58,7 @@ function Set-NumberingSuffix {
             return [regex]::Replace($lvlBlock, '(<w:lvl\b[^>]*>)', "`$1$newSuff", 1)
         }.GetNewClosure()
         return [System.Text.RegularExpressions.Regex]::Replace($whole, '(?s)<w:lvl\b[^>]*>(.*?)</w:lvl>', $lvlEval)
-    }
+    }.GetNewClosure()
     return [System.Text.RegularExpressions.Regex]::Replace(
         $NumberingXml,
         '(?s)<w:abstractNum [^>]*abstractNumId="(\d+)"[^>]*>.*?</w:abstractNum>',

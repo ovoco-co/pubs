@@ -80,7 +80,9 @@ A `.docx` source is read back against the reference document, which retargets an
 
 Point `-OutputFolder` at a dedicated folder. The last stage runs the NIST build on **every** Word file in the output folder, not just the ones it converted, so a folder that already holds unrelated documents will see them reformatted too. Left unset, output lands beside the source.
 
-### What the three stages do
+### What the five stages do
+
+**Stage zero, inline formatting (HTML sources only).** Rewrites CSS-only inline formatting into real tags before pandoc sees it, using `Repair-HtmlInlineFormatting.ps1`. Generators like R flextable emit no `<strong>`, `<em>`, or `<sup>` at all: every run of text is a `<span class="cl-xxxx">` and the bold, italic, and superscript live only in the generated stylesheet. Pandoc reads tags, not CSS, so without this the emphasis is flattened and nothing warns you. The source file is never touched; the repair runs on a working copy in the source folder, so relative image paths still resolve, and the copy is deleted afterwards. `-SkipInlineRepair` turns the stage off for HTML that already carries real tags.
 
 **Stage one, pandoc.** Converts each source file to `.docx` against the reference document, so the output starts with the NIST theme, page setup, headers and footers, numbering, and styles. Images are embedded, and `--extract-media` also drops the originals in a `media` folder beside the output. LaTeX math becomes native Word equations (OMML).
 
@@ -88,19 +90,35 @@ Point `-OutputFolder` at a dedicated folder. The last stage runs the NIST build 
 
 **Stage three, build.** Runs `Build-NISTDocuments.ps1 -Clean` on the output folder: theme, styles, page layout (1" margins), table look, 3-column width normalization, typography, and font de-embedding.
 
-Stage two runs before stage three on purpose. `Set-NISTStyleArchitecture.ps1` deletes styles it does not recognize but never edits `document.xml`, so a paragraph still pointing at a deleted pandoc style would quietly fall back to Normal. The remap rewrites those references first.
+**Stage four, tables.** Finishes what the generic pipeline cannot, because the pipeline's settings are tuned for hand-authored NCSTAR documents rather than converted statistical output. Three things happen per file, and a fourth on request:
+
+- **Table Style Options** are set with `Set-TableLook.ps1`: Header Row on, Banded Rows on, everything else off. Each option is a parameter on `Convert-ToNISTWord.ps1`. Leave **First Column** off unless you want it: turning it on is what bolds and shades column 1. Repeat-header-row is separate and stays on regardless. Every table is also pinned to the width its own grid adds up to, with a fixed layout: a converted table arrives as `tblW auto`, so Word sizes it from its contents and two tables with an identical grid still render at different widths. `-TableWidthInches` pins them all to one width instead, rescaling the columns in proportion; `-AutoFitTables` leaves Word to it. On top of that the statistical tables - the ones whose header row reads `Characteristic / N / %` - get the exact 2.7" / 0.6" / 0.6" (3.9" overall), so they are all identical down the page. The two small columns are equal and sized off their own content; column 1 is sized off the **green banner rows**, which span all three columns, so the table has to be wide enough for the longest group label or it wraps to two lines. `-ColumnWidthsInches` and `-MatchHeader` change that pairing, `-ColumnWidthsInches @()` turns it off, and any table that does not match the header keeps its own grid.
+- **Cell text** moves onto `TableText` with `Set-TableParagraphStyle.ps1`, which rewrites `w:pStyle` and nothing else, so bold, superscripts, subscripts, and `w:ind` all survive. `-TableTextStyle ''` leaves cell paragraph styles alone.
+- **Banner rows** - the full-width merged rows that title a group (`Ownership (n = 297)`) rather than carry data - are shaded `CCECE3` and bolded by `Set-TableBannerRows.ps1`. It runs after the footnote merge, because that is what separates the two kinds of full-width merged row: the notes are on `TableandFigureFootnotes` by then, so whatever is still unclaimed is a group label. `-BannerFill` sets the color, `-SkipTableBanners` turns it off.
+- **Bold in named columns**, with `-UnboldColumns`, is stripped from the body rows, header row excluded. Off by default: the bold in column 1 is normally a banner row, which is meant to be bold. Converted statistical tables carry their group labels (`Ownership (n = 297)`) as bold direct run formatting, which no Table Style Option can turn off, because it is not the style doing it. `-UnboldColumns` takes the column numbers, or an empty array to leave all bold alone.
+- **Row indentation** is rebuilt with `Restore-TableIndents.ps1`. With a `.docx` source the levels are read from the original's leading tabs; from HTML the target's own leading spaces are read. `-SkipTableIndents` turns it off.
+- **Table captions** are made from the header sitting above each table by `Set-NISTTableCaptions.ps1`, unless `-SkipTableCaptions`. The header moves onto `Caption_Table` and picks up the NIST number ahead of its existing title text: the word Table, a non-breaking space, the chapter number, an en dash, a `SEQ Table` field, a period, and two spaces. Only the table number is a field, so the set renumbers on Ctrl+A then F9. `-CaptionFromStyle` says which styles the headers are on and takes a list, which converted HTML usually needs, since the headers are rarely all one level and an HTML `<caption>` element arrives on `Caption`. The chapter number is a `STYLEREF` field by default, so each caption reads the chapter it actually sits under rather than a number baked in at conversion time; passing `-CaptionChapter` is what asks for a literal instead. A standalone extract with no Heading 1 above it shows a field error until it is merged into a real chapter. Any number the source already put in the title is dropped, so the caption reads `Table 1-1.  Sample Characteristics` and not `Table 1-1.  1 Sample Characteristics`; it is only dropped when it matches the number the caption is being given, so a title like `2020 Enrollment Data` keeps its 2020. `-KeepSourceNumbers` turns that off.
+- **Table footnotes** are collapsed, unless `-SkipTableFootnotes`, into one full-width unshaded row per table by `Merge-TableFootnotes.ps1`. A converter emits each note as its own row, and because those rows are full-width merges they pick up the banding stripe, or a banner fill if something upstream mistook a merged row for a banner. The merged row carries `w:fill="auto"` and a zeroed `w:cnfStyle`, so no Table Style Option can paint it wherever it lands in the stripe pattern, and the notes go on `TableandFigureFootnotes` with the bold and the indent removed. Superscript markers survive. From an HTML source the notes are identified from the original's `<tfoot>` blocks, which is exact; otherwise by row shape. That structural rule also matches a table whose last row is a banner or a merged total, so on a new document set run the script alone with `-ListOnly` once and read the listing.
+
+The order inside stage four matters: the footnote merge rewrites whole rows, so it runs after the cell style and the indents have settled, and the captions come last because the caption style only exists once stage three has applied the style architecture.
+
+Stage two runs before stage three on purpose. `Set-NISTStyleArchitecture.ps1` deletes styles it does not recognize but never edits `document.xml`, so a paragraph still pointing at a deleted pandoc style would quietly fall back to Normal. The remap rewrites those references first. Stage four runs after stage three for the same kind of reason: `Build-NISTDocuments.ps1` runs `Set-TableLook.ps1` with its own defaults, so the converted-table options have to be written afterwards or they are overwritten.
 
 ## Step three: finish the document
 
 The conversion does not do everything. After it runs:
 
-- **Table indentation.** Run `Restore-TableIndents.ps1`. Statistical tables carry their row hierarchy as a leading tab (in a `.docx` source) or a leading space (from HTML), and pandoc drops the tabs entirely. Without this the group labels and their members all sit flush left and the grouping is gone. With a `.docx` source pass `-Source` so the levels are read from the original; from HTML, run it on the target alone and it reads the leading spaces.
-- **Table text.** Run `Set-TableParagraphStyle.ps1` to move cell paragraphs onto `TableText`. The converter assigns the table style but leaves cell paragraphs on whatever pandoc chose, which is Body Text, or Quote for anything it read as a block quote. Quote carries a border and a fill that look wrong inside a cell. The script rewrites the paragraph style only, so bold, superscripts, subscripts, and indentation survive.
-- **Table captions.** Run `Set-NISTTableCaptions.ps1 -ListOnly` first, then without it. It converts the headings sitting above tables into `Caption_Table` with a `SEQ` number. Check the listing: a section heading that happens to sit above a table matches the same rule as a caption.
 - **Headers and footers.** Run `Set-NISTHeaderFooterContent.ps1` per file, with `-FrontMatter` on the front-matter file and without it on chapters.
 - **Document title.** Run `Set-DocTitle.ps1`, which prompts per file.
 - **Captions.** Pandoc's captions land on the `Caption` style but carry no Word caption fields, so cross-references and a table of figures need the fields inserted in Word.
 - **Display equations.** Math converts correctly but does not pick up the `MTDisplayEquation` style. Apply it where you want NIST equation spacing.
+
+The tables are mostly already done: stage four sets the Table Style Options, moves cell text onto `TableText`, and rebuilds the row indentation. `Set-TableLook.ps1`, `Set-TableParagraphStyle.ps1`, and `Restore-TableIndents.ps1` are still there to re-run by hand on a file that needs different settings.
+
+Two of the stage-four steps decide by shape what a thing means, so on a **new** document set check them once. Both run by default; these are the escape hatches:
+
+- **Table captions.** `Set-NISTTableCaptions.ps1 -ListOnly` lists what it would take. Watch for a section heading that happens to sit above a table. Turn it off with `-SkipTableCaptions`.
+- **Table footnotes.** `Merge-TableFootnotes.ps1 -ListOnly` does the same. Watch for a table whose last row is a banner or a merged total. Turn it off with `-SkipTableFootnotes`.
 
 ## Options
 
@@ -112,6 +130,23 @@ The conversion does not do everything. After it runs:
 | `-ReferenceDoc` | Reference document to use. Defaults to `NIST-reference.docx` beside the script. |
 | `-OutputFolder` | Where the `.docx` files go. Defaults to the source folder. |
 | `-TableStyle` | Table style for converted tables. Defaults to `NIST-Data`. Pass `''` to leave pandoc's table styling alone. |
+| `-HeaderRow` / `-TotalRow` / `-FirstColumn` / `-LastColumn` / `-BandedRows` / `-BandedColumns` | Table Style Options written in stage four. Defaults are the converted-table set: everything off except Banded Columns. |
+| `-RepeatHeaderRow` | Repeat the first row across page breaks. Default `$true`, independent of `-HeaderRow`. |
+| `-TableTextStyle` | Paragraph style put on every paragraph inside a table. Defaults to `TableText`. Pass `''` to skip. |
+| `-SkipInlineRepair` | Skip stage zero. For HTML that already carries real `<strong>`/`<em>`/`<sup>`. |
+| `-SkipTableIndents` | Skip the indent rebuild in stage four. |
+| `-FootnoteStyle` | Paragraph style for the merged table notes. Defaults to `TableandFigureFootnotes`. |
+| `-AutoFitTables` | Leave tables on Word's autofit instead of pinning them to a width. |
+| `-TableWidthInches` | Pin every table to this width, rescaling columns in proportion. The NIST text column is 6.5. |
+| `-UnboldColumns` | Columns to strip direct bold from in the body rows. Off by default. |
+| `-SkipTableBanners` / `-BannerFill` | Turn off, or recolor, the group-label banner shading. Fill defaults to `CCECE3`. |
+| `-SkipTableFootnotes` | Do not merge each table's footnote rows. |
+| `-SkipTableCaptions` | Do not turn the header above each table into a numbered caption. |
+| `-KeepSourceNumbers` | Keep a number the source already put at the front of a table title. |
+| `-CaptionFromStyle` | StyleIds the table headers are on. Defaults to `Heading1`; takes a list, e.g. `Heading1,Heading2,Caption`. |
+| `-CaptionStyle` | Caption style to apply. Defaults to `CaptionTable`. |
+| `-CaptionChapter` | Chapter number before the dash. Defaults to `1`. One value per run. |
+| `-CaptionUseStyleRef` | Write the chapter number as a `STYLEREF` field instead of literal text. |
 | `-RemapLists` | Move lists onto the NIST List Bullet and List Number ladders. Off by default, see the caveat below. |
 | `-Bibliography` | Bibliography file (`.bib`, `.json`, `.yaml`). Turns on `--citeproc`. |
 | `-Csl` | CSL style file for citeproc. |
@@ -119,7 +154,7 @@ The conversion does not do everything. After it runs:
 | `-PandocArgs` | Extra arguments passed to pandoc verbatim. |
 | `-PandocPath` | Path to `pandoc.exe` if it is not on PATH. |
 | `-SkipRemap` | Skip stage two, leaving pandoc's own styles in place. |
-| `-SkipPipeline` | Stop after stage two, so you can inspect the files before the NIST build runs. |
+| `-SkipPipeline` | Stop after stage two, so you can inspect the files before the NIST build and the table finish run. |
 | `-LegacyStyleFix` | Run the style step in full legacy-fix mode instead of `-Clean`. Rarely needed. |
 | `-Force` | Skip prompts and overwrite existing output. |
 
@@ -154,6 +189,21 @@ A batch, unattended, with lists moved onto the NIST ladder:
 ```powershell
 .\Convert-ToNISTWord.ps1 -Folder "C:\src\report" -OutputFolder "C:\out\report" -RemapLists -Force
 ```
+
+Statistical tables with notes at the foot of them. Check what the merge would take before turning it on, then convert:
+
+```powershell
+.\Convert-ToNISTWord.ps1 -File "C:\src\descriptivetabs.html" -OutputFolder "C:\out" -Force
+```
+
+That is the whole job: Table Style Options, widths pinned, cell text on `TableText`, row indents rebuilt, banner rows shaded, footnote rows merged, and the headers above the tables turned into numbered captions with a `STYLEREF` chapter. To see what the two shape-based steps would take before committing to them:
+
+```powershell
+.\Merge-TableFootnotes.ps1  -File "C:\out\descriptivetabs.docx" -ListOnly
+.\Set-NISTTableCaptions.ps1 -File "C:\out\descriptivetabs.docx" -ListOnly
+```
+
+Open the result and press Ctrl+A then F9 so the `SEQ` fields settle, and the numbers and any table of tables read correctly.
 
 ## What maps to what
 
@@ -231,6 +281,14 @@ Grep the source for `font-weight` and `vertical-align` to see how much applies.
 **Text comes out in Normal instead of a NIST style** - a style reference is pointing at a style that does not exist. This is what stage two prevents, so check whether it was skipped with `-SkipRemap`.
 
 **The pipeline stops at a step** - `Build-NISTDocuments.ps1` fails fast and names the step and file. Each underlying script backs up before writing, so the file is recoverable from its `.bak`. Fix the cause and re-run from that step.
+
+**Table captions all read "Table 5-0"** - the `SEQ` fields have not been evaluated yet. Ctrl+A then F9 in Word, which also refreshes any table of tables. The cached values written into the file are correct, so this only shows up before the first update.
+
+**A section heading turned into a table caption** - it sat directly above a table, which is the whole of the rule. Restore from the `.captions.bak` beside the file, then narrow `-FromStyle` to the level your captions actually use, or move that heading.
+
+**A grey or colored block under a table that nothing removes** - those are the footnote rows. They are full-width merges, so the table style's banding paints them, and `Remove-Shading.ps1` will not touch them because the color is not direct formatting. Run `Merge-TableFootnotes.ps1`, which merges them into one row carrying `w:fill="auto"` and a zeroed `w:cnfStyle` so no Table Style Option applies.
+
+**Bold and superscripts missing from converted HTML tables** - the HTML carries them in CSS classes rather than tags, and pandoc reads tags. Stage zero handles this; check it was not turned off with `-SkipInlineRepair`, and run `Repair-HtmlInlineFormatting.ps1 -ListOnly` on the source to confirm the classes are being read.
 
 **Everything in the output folder got reformatted** - stage three processes every Word file in `-OutputFolder`. Use a dedicated folder.
 

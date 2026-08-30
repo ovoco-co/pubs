@@ -28,7 +28,9 @@ function Edit-StyleBlock {
     $pattern = '(?si)<w:style\b([^>]*?\bw:styleId="' + [regex]::Escape($Id) + '"[^>]*?)>(.*?)</w:style>'
     $rgx = [regex]::new($pattern)
     $m = $rgx.Match($Xml)
-    if (-not $m.Success) { return ,$Xml, $false }
+    # No leading comma - see Remove-StyleBlock. This path runs whenever the
+    # document does not define the style being edited, which is common.
+    if (-not $m.Success) { return $Xml, $false }
     $newBlock = & $Mutator $m.Value $m.Groups[1].Value $m.Groups[2].Value
     return $rgx.Replace($Xml, [System.Text.RegularExpressions.MatchEvaluator]{ param($mm) $newBlock }, 1), $true
 }

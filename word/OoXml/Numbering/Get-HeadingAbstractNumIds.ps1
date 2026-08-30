@@ -50,5 +50,10 @@ function Get-HeadingAbstractNumIds {
         $linkedAbsMatch = [regex]::Match($NumberingXml, '<w:num w:numId="' + [regex]::Escape($linkedNumId) + '"[^>]*>\s*<w:abstractNumId w:val="(\d+)"', 'Singleline')
         if ($linkedAbsMatch.Success) { [void]$followLinks.Add($linkedAbsMatch.Groups[1].Value) }
     }
-    return $followLinks
+    # The comma matters. Without it PowerShell enumerates the HashSet on the way
+    # out, so an EMPTY set returns $null and the caller's first method call on it
+    # dies - and a ONE-element set returns a bare string, which is worse because
+    # it silently coerces. A document whose Heading1-9 carry no numbering hits
+    # the empty case, which is most converted documents.
+    return ,$followLinks
 }

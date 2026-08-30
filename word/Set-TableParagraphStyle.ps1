@@ -49,6 +49,22 @@
     The styleId to apply. Defaults to TableText (the "Table Text" style in the
     NIST template). This is a styleId, not a style name.
 
+.PARAMETER UnboldColumns
+    Column numbers (1-based) to strip direct bold from, in body rows only. The
+    header row keeps its bold. This is the one thing the script changes beyond
+    w:pStyle, and it only runs when asked for. Converted statistical tables
+    carry bold group labels in column 1 that the NIST table style has no way to
+    turn off, because the bold is direct run formatting rather than the style's
+    First Column option.
+
+.PARAMETER RightAlignColumns
+    Column numbers (1-based) to right-align, header row included. Money and
+    count columns read wrong ranged left, and pandoc drops the align attribute
+    off an HTML table, so the alignment has to be put back here.
+
+.PARAMETER UnboldIncludesHeader
+    Include the first row when stripping bold with -UnboldColumns.
+
 .PARAMETER KeepStyles
     StyleIds to leave alone when they are already on a table paragraph. Use for
     captions or footnotes that live inside a table and should keep their own
@@ -78,6 +94,12 @@ param(
     [string]$Folder,
 
     [string]$Style = 'TableText',
+
+    [int[]]$UnboldColumns = @(),
+
+    [int[]]$RightAlignColumns = @(),
+
+    [switch]$UnboldIncludesHeader,
 
     [string[]]$KeepStyles = @(),
 
@@ -251,12 +273,112 @@ foreach ($target in $targets) {
     }
     $newXml = $sb.ToString()
 
+    # ---- Optional second pass: strip direct bold from named columns ----
+    # Walks rows and cells so a column number means something. Plain loops, no
+    # MatchEvaluator: a closure gets its own scope, so a $script: counter
+    # incremented inside one never reaches the caller, and the file then looks
+    # like it had nothing to change.
+    $unbolded = 0
+    $aligned  = 0
+    if ($UnboldColumns.Count -gt 0 -or $RightAlignColumns.Count -gt 0) {
+        $wanted = @{}
+        foreach ($c in $UnboldColumns) { $wanted[[int]$c] = $true }
+        $wantRight = @{}
+        foreach ($c in $RightAlignColumns) { $wantRight[[int]$c] = $true }
+
+        $sb2  = New-Object System.Text.StringBuilder $newXml
+        $base = $newXml
+        # Table spans were measured on $xml. If the restyle pass changed the
+        # length they no longer line up, so re-find the tables in $base.
+        $tableSpans = @()
+        foreach ($tm in [regex]::Matches($base, '(?s)<w:tbl(?:\s[^>]*)?>.*?</w:tbl>')) {
+            $tableSpans += [pscustomobject]@{ Start = $tm.Index; Length = $tm.Length }
+        }
+
+        for ($i = $tableSpans.Count - 1; $i -ge 0; $i--) {
+            $ts    = $tableSpans[$i]
+            $chunk = $base.Substring($ts.Start, $ts.Length)
+            $rows  = [regex]::Matches($chunk, '(?s)<w:tr(?:\s[^>]*)?>(?:(?!</w:tr>).)*</w:tr>')
+            if ($rows.Count -eq 0) { continue }
+
+            $newChunk = New-Object System.Text.StringBuilder
+            $pos      = 0
+            $rowIndex = 0
+            foreach ($r in $rows) {
+                $rowIndex++
+                [void]$newChunk.Append($chunk.Substring($pos, $r.Index - $pos))
+                $pos = $r.Index + $r.Length
+
+                $headerSkip = ($rowIndex -eq 1 -and -not $UnboldIncludesHeader)
+                if ($headerSkip -and $wantRight.Count -eq 0) {
+                    [void]$newChunk.Append($r.Value)
+                    continue
+                }
+
+                $row     = $r.Value
+                $rowOut  = New-Object System.Text.StringBuilder
+                $cellPos = 0
+                $col     = 0
+                foreach ($cm in [regex]::Matches($row, '(?s)<w:tc(?:\s[^>]*)?>(?:(?!</w:tc>).)*</w:tc>')) {
+                    $col++
+                    $cell = $cm.Value
+                    if ($wanted.ContainsKey($col) -and -not $headerSkip) {
+                        $stripped = [regex]::Replace($cell, '<w:b(?:\s+w:val="(?:1|true|on)")?\s*/>', '')
+                        $stripped = [regex]::Replace($stripped, '<w:bCs(?:\s+w:val="(?:1|true|on)")?\s*/>', '')
+                        if ($stripped -ne $cell) { $unbolded++; $cell = $stripped }
+                    }
+                    if ($wantRight.ContainsKey($col)) {
+                        # w:jc lives in w:pPr, after w:pStyle. Replace an
+                        # existing one rather than adding a second.
+                        $before = $cell
+                        $cell = [regex]::Replace($cell, '(?s)<w:p(?:\s[^>]*)?>.*?</w:p>', {
+                            param($pm)
+                            $para = $pm.Value
+                            if ($para -match '<w:jc\b[^>]*/>') {
+                                return [regex]::Replace($para, '<w:jc\b[^>]*/>', '<w:jc w:val="right"/>', 1)
+                            }
+                            if ($para -match '(?s)<w:pPr(?:\s[^>]*)?>.*?</w:pPr>') {
+                                return [regex]::Replace($para, '(?s)(<w:pPr(?:\s[^>]*)?>)(.*?)(</w:pPr>)',
+                                    '${1}${2}<w:jc w:val="right"/>${3}', 1)
+                            }
+                            if ($para -match '<w:pPr\s*/>') {
+                                return [regex]::Replace($para, '<w:pPr\s*/>', '<w:pPr><w:jc w:val="right"/></w:pPr>', 1)
+                            }
+                            return [regex]::Replace($para, '^(<w:p(?:\s[^>]*)?>)',
+                                '${1}<w:pPr><w:jc w:val="right"/></w:pPr>', 1)
+                        })
+                        if ($cell -ne $before) { $aligned++ }
+                    }
+                    [void]$rowOut.Append($row.Substring($cellPos, $cm.Index - $cellPos))
+                    [void]$rowOut.Append($cell)
+                    $cellPos = $cm.Index + $cm.Length
+                    # A cell spanning N columns advances the count by N.
+                    $gs = [regex]::Match($cm.Value, '<w:gridSpan\s[^>]*w:val="(\d+)"')
+                    if ($gs.Success) { $col += ([int]$gs.Groups[1].Value - 1) }
+                }
+                [void]$rowOut.Append($row.Substring($cellPos))
+                [void]$newChunk.Append($rowOut.ToString())
+            }
+            [void]$newChunk.Append($chunk.Substring($pos))
+
+            [void]$sb2.Remove($ts.Start, $ts.Length)
+            [void]$sb2.Insert($ts.Start, $newChunk.ToString())
+        }
+        $newXml = $sb2.ToString()
+    }
+
     Write-Host "  Tables: $($spans.Count)" -ForegroundColor Gray
+    if ($UnboldColumns.Count -gt 0) {
+        Write-Host "  Bold stripped from column(s) $($UnboldColumns -join ', '): $unbolded cell(s)" -ForegroundColor Gray
+    }
+    if ($RightAlignColumns.Count -gt 0) {
+        Write-Host "  Right-aligned column(s) $($RightAlignColumns -join ', '): $aligned cell(s)" -ForegroundColor Gray
+    }
     Write-Host "  Paragraphs restyled to ${Style}: $script:applied" -ForegroundColor Gray
     Write-Host "  Already on ${Style}: $script:already" -ForegroundColor DarkGray
     if ($script:kept -gt 0) { Write-Host "  Left on a -KeepStyles style: $script:kept" -ForegroundColor DarkGray }
 
-    if ($script:applied -eq 0) {
+    if ($script:applied -eq 0 -and $unbolded -eq 0 -and $aligned -eq 0) {
         Write-Host "  Nothing to change. File unchanged." -ForegroundColor DarkGray
         continue
     }
