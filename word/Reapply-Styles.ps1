@@ -17,16 +17,20 @@
       - Italic (<w:i/> and <w:iCs/>). Book titles, scientific names,
         symbols, and manual emphasis stay italic.
       - Superscript and subscript (<w:vertAlign w:val="superscript"/> or
-        <w:vertAlign w:val="subscript"/>). Footnote markers, chemical
-        formulas, and exponents stay correct.
+        <w:vertAlign w:val="subscript"/>). Chemical formulas and exponents
+        stay correct.
+      - Footnote and endnote reference marks (the <w:rStyle> pointing at the
+        FootnoteReference / EndnoteReference character style). These carry the
+        superscript for the inline callout numbers and the note numbers, so
+        that rStyle is kept even though other character styles are cleared.
       - Runs that contain OLE objects, MathType equations, or Word equations
         (<w:object>, <o:OLEObject>, <m:oMath>, <m:oMathPara>). These runs
         are left entirely alone, including their rPr, since MathType and
         the equation editor depend on specific run formatting to render.
 
     On a preserved run, only the listed elements survive in rPr; everything
-    else (font, size, color, bold, language, rStyle, highlighting) is
-    cleared.
+    else (font, size, color, bold, language, highlighting, and character
+    styles other than FootnoteReference / EndnoteReference) is cleared.
 
     Paragraph mark formatting (<w:rPr> inside <w:pPr>) is left alone, so
     paragraph-level mark properties stay intact.
@@ -131,9 +135,17 @@ $runEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
             $rPrInner = if ($rPrMatch.Groups[2].Success) { $rPrMatch.Groups[2].Value } else { '' }
 
             # Collect any preservation-eligible elements from the rPr.
-            # Order them as Word writes them: rStyle (skipped), rFonts (skipped),
-            # b (skipped), i, iCs, ..., vertAlign near the end.
+            # Order them as Word writes them: rStyle (footnote/endnote refs
+            # only), rFonts (skipped), b (skipped), i, iCs, ..., vertAlign.
             $kept = New-Object System.Text.StringBuilder
+
+            # Footnote and endnote reference marks - the little superscript
+            # callout numbers in the body and the note numbers in the notes -
+            # get their superscript from the FootnoteReference / EndnoteReference
+            # character style, not from direct formatting. Keep that rStyle so
+            # the superscripts survive. Other character styles are still cleared.
+            $rStyleMatch = [regex]::Match($rPrInner, '(?i)<w:rStyle\b[^>]*\bw:val="(?:Footnote|Endnote)Reference"[^>]*/>')
+            if ($rStyleMatch.Success) { [void]$kept.Append($rStyleMatch.Value) }
 
             $iMatch  = [regex]::Match($rPrInner, '<w:i\b(?:\s+[^/>]*)?/?>')
             if ($iMatch.Success)  { [void]$kept.Append($iMatch.Value) }

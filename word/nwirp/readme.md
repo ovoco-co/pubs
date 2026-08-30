@@ -24,13 +24,13 @@ The 22 blocks are distributed across six phases:
 
 ```powershell
 # 1. Unpack the template
-../../word/Expand-WordPackage.ps1 -File "HM-NWIRP-Template.dotx"
+../Expand-WordPackage.ps1 -File "HM-NWIRP-Template.dotx"
 
 # 2. Add building blocks
 Build-NWIRPBuildingBlocks.ps1 -SourceDir "HM-NWIRP-Template_unpacked"
 
 # 3. Repack
-../../word/Compress-WordPackage.ps1 -SourceDir "HM-NWIRP-Template_unpacked"
+../Compress-WordPackage.ps1 -SourceDir "HM-NWIRP-Template_unpacked"
 ```
 
 ## Prerequisites

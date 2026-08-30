@@ -8,6 +8,8 @@ function Edit-RunRPrInStyle {
         paragraph-mark rPr nested inside pPr. Sets rFonts, explicitly disables
         bold, and sets sz/szCs to the specified half-point value.
 
+        Returns the block with every rPr sorted into schema order, so the result
+        is valid regardless of the order the input arrived in.
     .PARAMETER Block
         The style block XML string (a single w:style element).
 
@@ -57,5 +59,9 @@ function Edit-RunRPrInStyle {
         $tail = [regex]::Replace($tail, "(<w:sz\s+w:val=`"$SizeHalfPts`"\s*/>)", "`$1<w:szCs w:val=`"$SizeHalfPts`"/>", 1)
     }
 
-    return $prefix + $tail
+    # The insertions above each target "just after <w:rPr>", so the last one
+    # written ends up first and the block comes out in the wrong sequence.
+    # Sorting once at the end is simpler than making every insertion
+    # position-aware, and it also repairs blocks that arrived scrambled.
+    return Sort-RunPropertyOrder -Block ($prefix + $tail)
 }

@@ -300,6 +300,15 @@ function Strip-HeaderFooterRefs {
     return [regex]::Replace($SectPrXml, '<w:(headerReference|footerReference)[^/]*/>', '')
 }
 
+function Add-HeaderFooterRefs {
+    # Insert header/footer references as the FIRST children of the sectPr - where
+    # the OOXML schema requires them (before type/pgSz/...). Appending them before
+    # </w:sectPr> puts them after pgSz and Word rejects the file as unreadable.
+    param([string]$SectPrXml, [string]$Refs)
+    if (-not $SectPrXml -or -not $Refs) { return $SectPrXml }
+    return [regex]::Replace($SectPrXml, '(<w:sectPr\b[^>]*>)', "`$1$Refs", 1)
+}
+
 function Make-SectionBreakParagraph {
     # Wraps a sectPr inside an empty paragraph so it becomes an in-body section break.
     param([string]$SectPrXml)
@@ -325,7 +334,11 @@ function Strip-Comments {
     $x = $Xml
     $x = [regex]::Replace($x, '<w:commentRangeStart[^/]*/>', '')
     $x = [regex]::Replace($x, '<w:commentRangeEnd[^/]*/>', '')
-    $x = [regex]::Replace($x, '(?s)<w:r\b[^>]*>\s*(<w:rPr>.*?</w:rPr>\s*)?<w:commentReference[^/]*/>\s*</w:r>', '')
+    # Remove only the reference element, leaving a harmless (possibly empty) run.
+    # Do NOT match the whole enclosing run: a pattern like
+    # <w:r ...>(<w:rPr>.*?</w:rPr>)?<w:commentReference/></w:r> lets the rPr .*?
+    # bridge from one run across entire table cells to a distant comment run,
+    # deleting thousands of characters and breaking table structure.
     $x = [regex]::Replace($x, '<w:commentReference[^/]*/>', '')
     return $x
 }
@@ -336,13 +349,23 @@ function Accept-Revisions {
     param([string]$Xml)
     if (-not $Xml) { return $Xml }
     $x = $Xml
+    # Paragraph-mark change markers are self-closing (<w:ins .../>, <w:del .../>)
+    # inside an rPr. Strip these FIRST, or the block unwrap below mistakes a
+    # self-closing <w:ins .../> for an opening tag and swallows content up to the
+    # next real </w:ins>, corrupting the XML.
+    $x = [regex]::Replace($x, '<w:ins\b[^>]*?/>', '')
+    $x = [regex]::Replace($x, '<w:del\b[^>]*?/>', '')
     # Drop entire deletion blocks (w:del with their contents).
     $x = [regex]::Replace($x, '(?s)<w:del\b[^>]*>.*?</w:del>', '')
     # Unwrap insertion blocks (keep inner content).
     $x = [regex]::Replace($x, '(?s)<w:ins\b[^>]*>(.*?)</w:ins>', '$1')
-    # Strip change-tracking sub-elements.
+    # Strip change-tracking sub-elements. [^>]* not [^/]*: a change block like
+    # <w:rPrChange ...><w:rPr>...</w:rPr></w:rPrChange> is not self-closing, but
+    # [^/]*?/> would match from its open tag through the first nested
+    # self-closing element (e.g. an inner <w:vertAlign/>), tearing the block
+    # apart. [^>]*?/> only matches a genuinely self-closing tag.
     foreach ($tag in 'rPrChange','pPrChange','sectPrChange','tblPrChange','tcPrChange','trPrChange','tblGridChange','cellIns','cellDel','cellMerge') {
-        $x = [regex]::Replace($x, "(?s)<w:$tag\b[^/]*?/>", '')
+        $x = [regex]::Replace($x, "(?s)<w:$tag\b[^>]*?/>", '')
         $x = [regex]::Replace($x, "(?s)<w:$tag\b[^>]*>.*?</w:$tag>", '')
     }
     return $x
@@ -497,7 +520,10 @@ foreach ($f in $followers) {
     $rIdMap = @{}
     $skipRids = @{}   # rels we drop (header/footer/comments/people) — references in body get scrubbed
     if ($relsXml) {
-        $relMatches = [regex]::Matches($relsXml, '<Relationship\s[^/]*/>')
+        # [^>]* not [^/]*: every Relationship Type is an http:// URL full of
+        # slashes, so [^/]* stops at the first slash and matches nothing - which
+        # silently drops every image and hyperlink remap for the chapter.
+        $relMatches = [regex]::Matches($relsXml, '<Relationship\s[^>]*/>')
         foreach ($rel in $relMatches) {
             $relXml = $rel.Value
             if ($relXml -notmatch 'Id="(rId\d+)"') { continue }
@@ -664,9 +690,7 @@ foreach ($f in $followers) {
     #    sectPr (with host header/footer refs). Then append this chapter's inner.
     $sectForBreak = $prevTerminalSectPr
     $sectForBreak = Strip-HeaderFooterRefs -SectPrXml $sectForBreak
-    if ($hostHfRefs) {
-        $sectForBreak = $sectForBreak -replace '</w:sectPr>', "$hostHfRefs</w:sectPr>"
-    }
+    $sectForBreak = Add-HeaderFooterRefs -SectPrXml $sectForBreak -Refs $hostHfRefs
     $assembledBody += Make-SectionBreakParagraph -SectPrXml $sectForBreak
     $assembledBody += $inner
 
@@ -684,9 +708,7 @@ Write-Host "Stitching document.xml..." -ForegroundColor Yellow
 # Make sure its header/footer references match the host's.
 if ($prevTerminalSectPr) {
     $finalSect = Strip-HeaderFooterRefs -SectPrXml $prevTerminalSectPr
-    if ($hostHfRefs) {
-        $finalSect = $finalSect -replace '</w:sectPr>', "$hostHfRefs</w:sectPr>"
-    }
+    $finalSect = Add-HeaderFooterRefs -SectPrXml $finalSect -Refs $hostHfRefs
     $assembledBody += $finalSect
 }
 
@@ -761,7 +783,7 @@ foreach ($p in $commentParts) {
 # Also drop their entries from document.xml.rels if they survived (they shouldn't, but be safe).
 $relsX = Get-HostText 'word/_rels/document.xml.rels'
 if ($relsX) {
-    $relsX = [regex]::Replace($relsX, '<Relationship[^/]*Target="(comments\w*\.xml|people\.xml)"[^/]*/>', '')
+    $relsX = [regex]::Replace($relsX, '<Relationship\b[^>]*Target="(comments\w*\.xml|people\.xml)"[^>]*/>', '')
     Set-HostText 'word/_rels/document.xml.rels' $relsX
 }
 # And from [Content_Types].xml.
@@ -769,7 +791,8 @@ $ctText = Get-HostText '[Content_Types].xml'
 if ($ctText) {
     foreach ($p in $commentParts) {
         $partPath = '/' + $p
-        $ctText = [regex]::Replace($ctText, "<Override\s+PartName=`"$partPath`"[^/]*/>", '')
+        # [^>]* not [^/]*: ContentType is a slash-filled URL, so [^/]* matches nothing.
+        $ctText = [regex]::Replace($ctText, "<Override\s+PartName=`"$partPath`"[^>]*/>", '')
     }
     Set-HostText '[Content_Types].xml' $ctText
 }

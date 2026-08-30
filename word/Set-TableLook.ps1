@@ -20,6 +20,11 @@
     Also writes w:tblHeader into every first row's w:trPr so the header
     row repeats across page breaks.
 
+    Tables that use the Sidebar Table style are treated as floating callout
+    boxes instead: they are stamped with the canonical right-margin float and
+    text-wrapping (w:tblpPr + w:tblOverlap) and a 3" preferred width, and are
+    NOT given a repeating header row. This is done here because the schema does
+    not allow the float (w:tblpPr) to live in a table style.
     Operates directly on the ZIP package via System.IO.Compression - no
     Word installation required. Idempotent: re-running produces the same
     result.
@@ -87,6 +92,11 @@ if (-not $Force) {
 
 $CANONICAL_TBL_LOOK = '<w:tblLook w:val="0420" w:firstRow="1" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/>'
 
+# Sidebar callout float: right margin, text wraps with a 0.125" gap on each side,
+# tables never overlap. Applied to tables using the Sidebar Table style.
+$SIDEBAR_FLOAT = '<w:tblpPr w:leftFromText="180" w:rightFromText="180" w:vertAnchor="text" w:horzAnchor="margin" w:tblpXSpec="right" w:tblpY="-5"/><w:tblOverlap w:val="never"/>'
+$SIDEBAR_STYLE = '<w:tblStyle w:val="SidebarTable"/>'
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -106,10 +116,38 @@ $tblPrEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
     return ($whole -replace '</w:tblPr>', "$CANONICAL_TBL_LOOK</w:tblPr>")
 }
 
+# For each <w:tbl> using the Sidebar Table style: stamp the canonical float +
+# 3" preferred width onto its tblPr. Idempotent - existing float/overlap are
+# replaced. Tables not using the style are returned unchanged.
+$sidebarEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
+    param($m)
+    $table = $m.Value
+    if ($table -notmatch [regex]::Escape($SIDEBAR_STYLE)) { return $table }
+    $prMatch = [regex]::Match($table, '(?s)<w:tblPr\b[^>]*>.*?</w:tblPr>')
+    if (-not $prMatch.Success) { return $table }
+    $pr = $prMatch.Value
+    # Drop any existing float / overlap so re-runs stay idempotent.
+    $np = [regex]::Replace($pr, '<w:tblpPr\b[^>]*/>', '')
+    $np = [regex]::Replace($np, '<w:tblOverlap\b[^>]*/>', '')
+    # Insert the canonical float + overlap immediately after the tblStyle
+    # (schema order: tblStyle, tblpPr, tblOverlap, ... , tblW, ... , tblLook).
+    $np = [regex]::Replace($np, "($([regex]::Escape($SIDEBAR_STYLE)))", "`$1$SIDEBAR_FLOAT", 1)
+    # Force the preferred width to 3" (4325 twips): replace an instance tblW
+    # (usually auto, which would override the style) or insert after tblOverlap.
+    if ($np -match '<w:tblW\b[^>]*/>') {
+        $np = [regex]::Replace($np, '<w:tblW\b[^>]*/>', '<w:tblW w:w="4325" w:type="dxa"/>', 1)
+    } else {
+        $np = [regex]::Replace($np, '(<w:tblOverlap\b[^>]*/>)', '$1<w:tblW w:w="4325" w:type="dxa"/>', 1)
+    }
+    return $table.Substring(0, $prMatch.Index) + $np + $table.Substring($prMatch.Index + $pr.Length)
+}
+
 # For each <w:tbl>: locate the first <w:tr>, ensure <w:tblHeader/> is in its trPr.
+# Sidebar callout tables are skipped - a floating callout has no repeating header.
 $firstRowEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
     param($m)
     $table = $m.Value
+    if ($table -match [regex]::Escape($SIDEBAR_STYLE)) { return $table }
     # Find the first <w:tr>...</w:tr> block in this table
     $trMatch = [regex]::Match($table, '(?s)<w:tr\b[^>]*>(.*?)</w:tr>')
     if (-not $trMatch.Success) { return $table }
@@ -176,7 +214,17 @@ foreach ($target in $targets) {
         $firstRowEvaluator)
     Write-Host "  Visited $tableCount table(s); ensured Repeat-Header-Row" -ForegroundColor DarkGray
 
-    # 4. Write back
+    # 4. Sidebar callout tables: stamp the float + 3" width.
+    $sidebarCount = ([regex]::Matches($documentXml, "(?s)<w:tbl\b[^>]*>(?:(?!</w:tbl>).)*?$([regex]::Escape($SIDEBAR_STYLE))")).Count
+    $documentXml = [System.Text.RegularExpressions.Regex]::Replace(
+        $documentXml,
+        '(?s)<w:tbl\b[^>]*>.*?</w:tbl>',
+        $sidebarEvaluator)
+    if ($sidebarCount -gt 0) {
+        Write-Host "  Sidebar Table callouts floated (right margin, 3`"): $sidebarCount" -ForegroundColor DarkGray
+    }
+
+    # 5. Write back
     $tempZip = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "tbllook-$([guid]::NewGuid()).zip")
     $srcStream = [System.IO.File]::OpenRead($target)
     try {

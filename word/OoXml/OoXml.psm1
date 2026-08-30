@@ -57,6 +57,7 @@ Export-ModuleMember -Function @(
     'Set-StyleBasedOn',
     'Set-StyleColor',
     'Edit-RunRPrInStyle',
+    'Sort-RunPropertyOrder',
     'Set-StyleRecommended',
     'Set-StyleHidden',
     'Get-HeadingAbstractNumIds',

@@ -12,7 +12,9 @@
       Footer:
         - Even pages: PAGE on left (outer), TITLE on right (inner near binding)
         - Odd pages:  TITLE on left (inner near binding), PAGE on right (outer)
-        - First page of each section: blank
+        - First page: TITLE + PAGE (recto layout) on chapters; blank on the
+          front matter (pass -FrontMatter). The first-page HEADER stays blank
+          in both cases - the chapter title is already on that page.
       Header paragraph applies style HeaderEven (left-aligned) or HeaderOdd
       (right-aligned). Footer paragraph applies style FooterEven or FooterOdd.
       All four styles are created by Set-NISTStyleArchitecture.ps1 and carry
@@ -30,20 +32,42 @@
 
     Idempotent: re-running replaces the same nist* parts.
 
+    Finally, recalculates the header and footer fields through Word. Everything
+    before that step edits the ZIP directly and needs no Word, but STYLEREF and
+    PAGE fields cache their result and only Word can compute a new one. Ctrl+A
+    then F9 is not an alternative: Ctrl+A selects the main text story, so F9
+    never reaches the header and footer stories. Fields inside text boxes are
+    handled too, since those belong to the shape's text range rather than the
+    header's own range. Pass -SkipFieldUpdate to leave it; if Word is not
+    installed the script says so and the files are still correct, just showing
+    cached values.
+
 .PARAMETER File
     Path to a single Word file.
 
 .PARAMETER Folder
     Folder of Word files. All .docx/.dotx/.docm/.dotm in folder are processed.
 
+.PARAMETER FrontMatter
+    Treat the target as front matter: leave the first-page footer blank.
+    Without this switch (the chapter default) the first page carries a
+    TITLE + PAGE footer. Run the front-matter file with -FrontMatter and the
+    chapter files without it.
+
 .PARAMETER Force
     Skip the confirmation prompt.
 
-.EXAMPLE
-    .\Set-NISTHeaderFooterContent.ps1 -File "NCSTAR-4-1.docx"
+.PARAMETER SkipFieldUpdate
+    Do not open the files in Word to recalculate header/footer fields. Use when
+    Word is unavailable, or when a later step will refresh them anyway.
 
 .EXAMPLE
-    .\Set-NISTHeaderFooterContent.ps1 -Folder "C:\templates"
+    # Chapters: first page gets a footer
+    .\Set-NISTHeaderFooterContent.ps1 -Folder "C:\chapters"
+
+.EXAMPLE
+    # Front matter: first page footer stays blank
+    .\Set-NISTHeaderFooterContent.ps1 -File "NCSTAR-4-3_Chapter-00_Front-Matter.docx" -FrontMatter
 #>
 
 [CmdletBinding(DefaultParameterSetName='File')]
@@ -53,6 +77,10 @@ param(
 
     [Parameter(Mandatory=$true, ParameterSetName='Folder')]
     [string]$Folder,
+
+    [switch]$FrontMatter,
+
+    [switch]$SkipFieldUpdate,
 
     [switch]$Force
 )
@@ -138,6 +166,32 @@ function New-FtrFirst {
 '@
 }
 
+function New-FtrFirstContent {
+    # Chapter opening (first) page footer: recto layout - TITLE on inner (left),
+    # PAGE on outer (right) - same as the odd/default footer, using FooterOdd so
+    # it carries the horizontal rule and tab stops. Front matter uses the blank
+    # New-FtrFirst instead (pass -FrontMatter).
+@'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:p>
+    <w:pPr><w:pStyle w:val="FooterOdd"/></w:pPr>
+    <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+    <w:r><w:instrText xml:space="preserve"> TITLE \* MERGEFORMAT </w:instrText></w:r>
+    <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+    <w:r><w:t>Report Title</w:t></w:r>
+    <w:r><w:fldChar w:fldCharType="end"/></w:r>
+    <w:r><w:tab/></w:r>
+    <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+    <w:r><w:instrText xml:space="preserve"> PAGE \* MERGEFORMAT </w:instrText></w:r>
+    <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+    <w:r><w:t>1</w:t></w:r>
+    <w:r><w:fldChar w:fldCharType="end"/></w:r>
+  </w:p>
+</w:ftr>
+'@
+}
+
 function New-FtrEven {
     # Even (left-hand) page: PAGE on outer (left), TITLE on inner (right)
 @'
@@ -188,6 +242,8 @@ function New-FtrDefault {
 Write-Host "NIST Header/Footer Content Installer" -ForegroundColor Cyan
 Write-Host "  Targets:" -ForegroundColor Cyan
 $targets | ForEach-Object { Write-Host "    $_" }
+$firstFooterMode = if ($FrontMatter) { 'blank (front matter)' } else { 'TITLE + PAGE (chapter)' }
+Write-Host "  First-page footer: $firstFooterMode" -ForegroundColor Cyan
 Write-Host "  This will REPLACE all existing header*.xml and footer*.xml parts." -ForegroundColor Yellow
 Write-Host ""
 
@@ -237,10 +293,18 @@ foreach ($target in $targets) {
     foreach ($k in $toRemove) { [void]$entries.Remove($k) }
     Write-Host "  Removed $($toRemove.Count) existing header/footer part(s)." -ForegroundColor Gray
 
-    # 2. Strip their <Override> entries from [Content_Types].xml
+    # 2. Strip their <Override> entries from [Content_Types].xml.
+    #    Match by ContentType (header+xml / footer+xml), NOT by part name, so
+    #    this removes the original header#/footer# overrides AND any nist*
+    #    overrides a previous run added - which keeps the step idempotent.
+    #    Matching only header\d*/footer\d* names would leave the nist* overrides
+    #    in place and a re-run would append a second copy, producing duplicate
+    #    PartName entries that Word rejects as "unreadable content".
+    #    The ContentType value contains "/", so the attribute skip must be
+    #    [^>]* here - [^/]* stops at the first slash and matches nothing.
     $contentTypes = [regex]::Replace(
         $contentTypes,
-        '<Override\s+PartName="/word/(?:header|footer)\d*\.xml"[^/]*/>',
+        '<Override\b[^>]*ContentType="[^"]*wordprocessingml\.(?:header|footer)\+xml"[^>]*/>',
         ''
     )
 
@@ -333,7 +397,8 @@ foreach ($target in $targets) {
     $entries['word/nistHeaderFirst.xml']    = $utf8NoBom.GetBytes((New-HdrFirst))
     $entries['word/nistHeaderEven.xml']     = $utf8NoBom.GetBytes((New-HdrEven))
     $entries['word/nistHeaderDefault.xml']  = $utf8NoBom.GetBytes((New-HdrDefault))
-    $entries['word/nistFooterFirst.xml']    = $utf8NoBom.GetBytes((New-FtrFirst))
+    $firstFooter = if ($FrontMatter) { New-FtrFirst } else { New-FtrFirstContent }
+    $entries['word/nistFooterFirst.xml']    = $utf8NoBom.GetBytes($firstFooter)
     $entries['word/nistFooterEven.xml']     = $utf8NoBom.GetBytes((New-FtrEven))
     $entries['word/nistFooterDefault.xml']  = $utf8NoBom.GetBytes((New-FtrDefault))
 
@@ -357,6 +422,85 @@ foreach ($target in $targets) {
 
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green
-Write-Host "Reminder: open each file in Word and press Ctrl+A then F9 to refresh fields, or" -ForegroundColor Cyan
-Write-Host "          right-click in header/footer and choose 'Update Field'." -ForegroundColor Cyan
+
+# ---------------------------------------------------------------------------
+# Recalculate the header/footer fields
+# ---------------------------------------------------------------------------
+# Everything above edits the ZIP directly and needs no Word. This step does,
+# unavoidably: STYLEREF and PAGE fields store a cached result, and only Word can
+# compute a new one. Ctrl+A then F9 is not an alternative - Ctrl+A selects the
+# main text story, so F9 never reaches the header and footer stories.
+#
+# Shapes are walked separately because a field inside a text box belongs to that
+# shape's text range, not to the header's own range, so Range.Fields.Update()
+# skips it.
+if ($SkipFieldUpdate) {
+    Write-Host ""
+    Write-Host "Field update skipped (-SkipFieldUpdate). The headers and footers will show" -ForegroundColor Yellow
+    Write-Host "stale values until Word recalculates them." -ForegroundColor Yellow
+    return
+}
+
+$word = $null
+try {
+    $word = New-Object -ComObject Word.Application
+} catch {
+    Write-Host ""
+    Write-Warning "Word is not available on this machine, so the fields were not recalculated."
+    Write-Host "  The files are correct; their headers and footers just show cached values." -ForegroundColor Cyan
+    Write-Host "  Re-run this script from Windows PowerShell, or open each file in Word and" -ForegroundColor Cyan
+    Write-Host "  right-click in the header/footer > Update Field." -ForegroundColor Cyan
+    return
+}
+
+Write-Host ""
+Write-Host "Recalculating header/footer fields in Word..." -ForegroundColor Cyan
+$word.Visible = $false
+$word.DisplayAlerts = 0
+$updatedFiles = 0
+try {
+    foreach ($target in $targets) {
+        $doc = $null
+        try {
+            $doc = $word.Documents.Open($target, $false, $false)
+            # Recalculating a field is not an editorial change. With track
+            # changes on, Word would otherwise record every updated field as a
+            # revision under the last author's name and bury it in the markup
+            # of a document that is out for review.
+            $wasTracking = $doc.TrackRevisions
+            $doc.TrackRevisions = $false
+            $n = 0
+            foreach ($sec in $doc.Sections) {
+                foreach ($collection in @($sec.Headers, $sec.Footers)) {
+                    foreach ($hf in $collection) {
+                        $n += $hf.Range.Fields.Count
+                        $hf.Range.Fields.Update() | Out-Null
+                        foreach ($shp in $hf.Shapes) {
+                            if ($shp.TextFrame.HasText) {
+                                $n += $shp.TextFrame.TextRange.Fields.Count
+                                $shp.TextFrame.TextRange.Fields.Update() | Out-Null
+                            }
+                        }
+                    }
+                }
+            }
+            $doc.TrackRevisions = $wasTracking
+            $doc.Save()
+            $tracked = if ($wasTracking) { ', track changes left on' } else { '' }
+            Write-Host ("  {0}: {1} field(s) across {2} section(s){3}" -f (Split-Path -Leaf $target), $n, $doc.Sections.Count, $tracked) -ForegroundColor Gray
+            $updatedFiles++
+        } catch {
+            Write-Warning "  $(Split-Path -Leaf $target): field update failed - $($_.Exception.Message)"
+        } finally {
+            if ($doc) { $doc.Close($false) | Out-Null }
+        }
+    }
+} finally {
+    $word.Quit()
+    [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($word)
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
+}
+
+Write-Host "Fields recalculated in $updatedFiles of $($targets.Count) file(s)." -ForegroundColor Green
 Write-Host "Title comes from File > Info > Properties > Title (set with Set-NISTDocTitle.ps1)." -ForegroundColor Cyan

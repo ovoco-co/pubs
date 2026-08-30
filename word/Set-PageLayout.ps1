@@ -24,10 +24,10 @@
     in the folder.
 
 .PARAMETER InnerInches
-    Inner (binding-side) margin in inches. Default 1.25. Maps to w:left.
+    Inner (binding-side) margin in inches. Default 1.0. Maps to w:left.
 
 .PARAMETER OuterInches
-    Outer (non-binding) margin in inches. Default 0.75. Maps to w:right.
+    Outer (non-binding) margin in inches. Default 1.0. Maps to w:right.
 
 .PARAMETER TopInches
     Top margin in inches. Default 1.0.
