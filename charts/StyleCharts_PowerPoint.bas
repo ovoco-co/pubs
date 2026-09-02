@@ -59,6 +59,9 @@ Sub StyleAllCharts()
                         StylePieChart cht, slideNum
                     Case xlColumnClustered, xlBarClustered
                         StyleBarChart cht, slideNum
+                    Case xlLine, xlLineMarkers, xlLineStacked, xlLineMarkersStacked, _
+                         xlLineStacked100, xlLineMarkersStacked100
+                        StyleLineChart cht, slideNum
                 End Select
             End If
         Next shp
@@ -298,6 +301,127 @@ Sub StylePieChart(cht As Chart, slideNum As Long)
 End Sub
 
 ' ============================================================
+' LINE CHART STYLING
+' ============================================================
+' A time series is a line, and the Select Case above used to have no arm for
+' one: a line chart fell straight through and came out unstyled. It cannot be
+' routed to StyleBarChart either, because that sets ChartGroups(1).GapWidth,
+' which a line group does not have.
+Sub StyleLineChart(cht As Chart, slideNum As Long)
+    Dim s As Series
+    Dim i As Long
+
+    ' Remove chart title
+    cht.HasTitle = False
+
+    ' Chart area: white fill, no border
+    With cht.ChartArea
+        .Format.Fill.ForeColor.RGB = WHITE_COLOR
+        .Format.Line.Visible = msoFalse
+    End With
+
+    ' Plot area: white fill, no border
+    With cht.PlotArea
+        .Format.Fill.ForeColor.RGB = WHITE_COLOR
+        .Format.Line.Visible = msoFalse
+    End With
+
+    ' Stroke first, colour second. On a line the weight and the colour both
+    ' live on Format.Line, so the colour has to be applied last to survive.
+    For i = 1 To cht.SeriesCollection.Count
+        Set s = cht.SeriesCollection(i)
+
+        With s.Format.Line
+            .Visible = msoTrue
+            .Weight = 2.25
+            .DashStyle = msoLineSolid
+        End With
+
+        ' No shadow. The drop shadow that gives a bar its lift reads as a
+        ' blur on a 2pt line.
+        s.Format.Shadow.Visible = msoFalse
+
+        ' Straight segments between real data points. A smoothed line invents
+        ' values between them, which is a misrepresentation in a report.
+        s.Smooth = False
+        s.MarkerStyle = xlMarkerStyleNone
+    Next i
+
+    ApplyLineSeriesColors cht, slideNum
+
+    ' Y Axis (Value Axis)
+    With cht.Axes(xlValue)
+        .Format.Line.Visible = msoFalse
+        .MajorTickMark = xlTickMarkNone
+        .MinorTickMark = xlTickMarkNone
+        .TickLabels.Font.Name = "Arial"
+        .TickLabels.Font.Size = 8
+        .TickLabels.Font.Color = SLATE
+        .TickLabels.NumberFormat = LineValueFormat(slideNum)
+
+        If .HasMajorGridlines Then
+            With .MajorGridlines.Format.Line
+                .Visible = msoTrue
+                .ForeColor.RGB = WHISPER_LINE
+                .Weight = 0.75
+            End With
+        End If
+
+        If .HasTitle Then
+            With .AxisTitle.Format.TextFrame2.TextRange.Font
+                .Name = "Arial"
+                .Size = 8
+                .Fill.ForeColor.RGB = SLATE
+                .Bold = msoFalse
+            End With
+        End If
+    End With
+
+    ' X Axis (Category Axis). A time axis keeps its baseline and loses its
+    ' gridlines: the horizontal ones already carry the reading.
+    With cht.Axes(xlCategory)
+        With .Format.Line
+            .Visible = msoTrue
+            .ForeColor.RGB = SILVER_LINE
+            .Weight = 0.5
+        End With
+        .MajorTickMark = xlTickMarkNone
+        .MinorTickMark = xlTickMarkNone
+        .TickLabels.Font.Name = "Arial"
+        .TickLabels.Font.Size = 8
+        .TickLabels.Font.Color = SLATE
+
+        If .HasMajorGridlines Then .HasMajorGridlines = False
+    End With
+
+    ' Legend
+    If cht.SeriesCollection.Count > 1 Then
+        cht.HasLegend = True
+        With cht.Legend
+            .Position = xlLegendPositionBottom
+            .IncludeInLayout = False
+            .Format.TextFrame2.TextRange.Font.Name = "Arial"
+            .Format.TextFrame2.TextRange.Font.Size = 8
+            .Format.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = SLATE
+            .Format.Fill.Visible = msoFalse
+            .Format.Line.Visible = msoFalse
+        End With
+    Else
+        cht.HasLegend = False
+    End If
+End Sub
+
+Function LineValueFormat(slideNum As Long) As String
+    Select Case slideNum
+        Case 2 ' COR3 obligations in dollars
+            ' Billions, so the axis reads $1.5B rather than 1500000000
+            LineValueFormat = "$#,##0.0,,,""B"""
+        Case Else
+            LineValueFormat = "#,##0"
+    End Select
+End Function
+
+' ============================================================
 ' SERIES COLOR APPLICATION
 ' ============================================================
 Sub ApplyBarSeriesColors(cht As Chart, slideNum As Long)
@@ -345,6 +469,45 @@ Sub ApplyBarSeriesColors(cht As Chart, slideNum As Long)
     For i = 1 To UBound(colors)
         If i <= cht.SeriesCollection.Count Then
             cht.SeriesCollection(i).Format.Fill.ForeColor.RGB = colors(i)
+        End If
+    Next i
+End Sub
+
+Sub ApplyLineSeriesColors(cht As Chart, slideNum As Long)
+    Dim colors(1 To 7) As Long
+    Dim i As Long
+
+    ' The palette in order, so an unmapped slide still comes out styled
+    ' instead of keeping PowerPoint's defaults. That is the deliberate
+    ' difference from ApplyBarSeriesColors, which Exit Subs on an unmapped
+    ' slide and leaves the chart alone.
+    colors(1) = NAVY_SOFT
+    colors(2) = TAWNY_SOFT
+    colors(3) = SHAMROCK_SOFT
+    colors(4) = PICTON_SOFT
+    colors(5) = CLARET_SOFT
+    colors(6) = HARVEST_SOFT
+    colors(7) = MULBERRY_SOFT
+
+    ' Per-slide overrides. These two carry the same three categories in a
+    ' different series order, so without the override the same category would
+    ' change colour between the figures.
+    Select Case slideNum
+        Case 1 ' COR3 project counts: Total, Completed, Planning
+            colors(1) = NAVY_SOFT
+            colors(2) = SHAMROCK_SOFT
+            colors(3) = TAWNY_SOFT
+
+        Case 2 ' COR3 project dollars: Total, Planning, Completed
+            colors(1) = NAVY_SOFT
+            colors(2) = TAWNY_SOFT
+            colors(3) = SHAMROCK_SOFT
+    End Select
+
+    ' A line carries its colour on the stroke, not on a fill.
+    For i = 1 To cht.SeriesCollection.Count
+        If i <= 7 Then
+            cht.SeriesCollection(i).Format.Line.ForeColor.RGB = colors(i)
         End If
     Next i
 End Sub

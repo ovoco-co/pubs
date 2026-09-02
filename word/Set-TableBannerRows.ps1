@@ -38,7 +38,25 @@
 
 .PARAMETER Fill
     Cell fill for a banner row, as six hex digits, no hash. Default CCECE3.
-    Pass 'auto' to apply no fill and only set the bold.
+    Pass 'auto' to apply no fill and only set the bold. This is the fallback
+    for any table no -FillRules entry claims.
+
+.PARAMETER FillRules
+    Caption-driven fills, so one document can colour-code its tables by which
+    population they describe. Each entry is 'Pattern=HEX', where Pattern is a
+    regex matched case-insensitively against the caption above the table and
+    HEX is six hex digits or 'auto'. The first entry that matches wins, so
+    order them most specific first. A table with no caption of its own
+    inherits the nearest caption above it, which is what a continuation table
+    needs.
+
+        -FillRules 'Schools=F7DFCC','Hospitals=CCECE3'
+
+    Anything unmatched falls back to -Fill.
+
+.PARAMETER CaptionStyles
+    Paragraph styleIds -FillRules reads a table's caption from. Defaults to
+    CaptionTable, Caption, and Heading1 through Heading3.
 
 .PARAMETER NoBold
     Leave the run formatting alone and only apply the fill.
@@ -75,6 +93,10 @@ param(
 
     [string]$Fill = 'CCECE3',
 
+    [string[]]$FillRules = @(),
+
+    [string[]]$CaptionStyles = @('CaptionTable', 'Caption', 'Heading1', 'Heading2', 'Heading3'),
+
     [switch]$NoBold,
 
     [string[]]$ExcludeStyles = @('TableandFigureFootnotes', 'CaptionTable'),
@@ -95,6 +117,34 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 if ($Fill -ne 'auto' -and $Fill -notmatch '^[0-9A-Fa-f]{6}$') {
     throw "-Fill must be six hex digits with no hash, or 'auto'. Got: $Fill"
 }
+
+# Ordered, so the first matching pattern wins.
+$rules = New-Object System.Collections.ArrayList
+# powershell.exe -File does not split a comma-separated argument into an
+# array, so 'A=1','B=2' arrives as the single string 'A=1,B=2'. Split it back.
+$ruleEntries = @()
+foreach ($raw in $FillRules) {
+    if (-not $raw) { continue }
+    $ruleEntries += [regex]::Split($raw, ',(?=[^,]*=)')
+}
+
+foreach ($entry in $ruleEntries) {
+    if (-not $entry) { continue }
+    $eq = $entry.LastIndexOf('=')
+    if ($eq -lt 1 -or $eq -eq $entry.Length - 1) {
+        throw "-FillRules entries must look like 'Pattern=HEX'. Got: $entry"
+    }
+    $pattern = $entry.Substring(0, $eq).Trim()
+    $hex     = $entry.Substring($eq + 1).Trim()
+    if ($hex -ne 'auto' -and $hex -notmatch '^[0-9A-Fa-f]{6}$') {
+        throw "-FillRules fill must be six hex digits with no hash, or 'auto'. Got: $hex (in '$entry')"
+    }
+    try { [void][regex]::new($pattern) }
+    catch { throw "-FillRules pattern is not a valid regex: $pattern (in '$entry')" }
+    [void]$rules.Add([pscustomobject]@{ Pattern = $pattern; Fill = $hex })
+}
+
+$captionStyleAlt = ($CaptionStyles | ForEach-Object { [regex]::Escape($_) }) -join '|'
 
 # ---------------------------------------------------------------------------
 # Targets
@@ -117,6 +167,11 @@ Write-Host "Set Table Banner Rows" -ForegroundColor Cyan
 Write-Host "  Full-width merged rows that are not footnotes or captions." -ForegroundColor Cyan
 Write-Host ("  Fill: {0}   Bold: {1}" -f $Fill, $(if ($NoBold) { 'left alone' } else { 'applied' })) -ForegroundColor Cyan
 Write-Host ("  Excluded styles: {0}" -f ($ExcludeStyles -join ', ')) -ForegroundColor Cyan
+if ($rules.Count -gt 0) {
+    Write-Host ("  Caption rules (first match wins), read from: {0}" -f ($CaptionStyles -join ', ')) -ForegroundColor Cyan
+    foreach ($r in $rules) { Write-Host ("    /{0}/ -> {1}" -f $r.Pattern, $r.Fill) -ForegroundColor Cyan }
+    Write-Host ("    unmatched -> {0}" -f $Fill) -ForegroundColor Cyan
+}
 if ($SkipTrailing) { Write-Host "  Trailing full-width rows left alone" -ForegroundColor Cyan }
 Write-Host "  Targets:" -ForegroundColor Cyan
 $targets | ForEach-Object { Write-Host "    $_" }
@@ -128,8 +183,11 @@ if (-not $ListOnly -and -not $Force) {
     if ($reply -notmatch '^[yY]') { throw "Aborted." }
 }
 
-$SHD = if ($Fill -eq 'auto') { '<w:shd w:val="clear" w:color="auto" w:fill="auto"/>' }
-       else { '<w:shd w:val="clear" w:color="auto" w:fill="' + $Fill.ToUpperInvariant() + '"/>' }
+function New-Shd {
+    param([string]$Hex)
+    if ($Hex -eq 'auto') { return '<w:shd w:val="clear" w:color="auto" w:fill="auto"/>' }
+    return '<w:shd w:val="clear" w:color="auto" w:fill="' + $Hex.ToUpperInvariant() + '"/>'
+}
 
 function Read-Package {
     param([string]$Path)
@@ -165,7 +223,11 @@ foreach ($target in $targets) {
     if (-not $pkg.Data.ContainsKey('word/document.xml')) { Write-Warning "  No word/document.xml. Skipping."; continue }
 
     $raw    = $utf8NoBom.GetString($pkg.Data['word/document.xml'])
-    $hadBom = $raw.StartsWith([char]0xFEFF)
+    # Not StartsWith: PowerShell coerces the char to a string and .NET's
+    # default comparison is culture-sensitive, which treats U+FEFF as
+    # ignorable - so it answers True on a document that has no BOM, and the
+    # rewrite then adds one that was never there.
+    $hadBom = $raw.Length -gt 0 -and $raw[0] -eq [char]0xFEFF
     $doc    = $raw.TrimStart([char]0xFEFF)
 
     $bodyAt = $doc.IndexOf('<w:body>')
@@ -173,9 +235,22 @@ foreach ($target in $targets) {
     $head = $doc.Substring(0, $bodyAt)
     $body = $doc.Substring($bodyAt)
 
+    # Caption paragraphs, in document order, so each table can find the one
+    # above it. A table with no caption of its own inherits the nearest
+    # caption above it, which is what a continuation table needs.
+    $captions = New-Object System.Collections.ArrayList
+    if ($rules.Count -gt 0) {
+        foreach ($pm in [regex]::Matches($body, '(?s)<w:p(?:\s[^>]*)?>(?:(?!</w:p>).)*</w:p>')) {
+            if ($pm.Value -notmatch ('<w:pStyle\s[^>]*w:val="(?:' + $captionStyleAlt + ')"')) { continue }
+            $ct = Get-RowText -Xml $pm.Value
+            if ($ct) { [void]$captions.Add([pscustomobject]@{ Index = $pm.Index; Text = $ct }) }
+        }
+    }
+
     $edits   = New-Object System.Collections.ArrayList
     $banners = 0
     $shown   = 0
+    $groups  = @{}
 
     foreach ($tm in [regex]::Matches($body, '(?s)<w:tbl(?:\s[^>]*)?>.*?</w:tbl>')) {
         $table = $tm.Value
@@ -184,6 +259,20 @@ foreach ($target in $targets) {
 
         $rows = [regex]::Matches($table, '(?s)<w:tr(?:\s[^>]*)?>(?:(?!</w:tr>).)*</w:tr>')
         if ($rows.Count -lt 2) { continue }
+
+        # Which fill this table's banners get. Fall back to -Fill.
+        $tableFill  = $Fill
+        $tableRule  = ''
+        $tableCap   = ''
+        if ($rules.Count -gt 0) {
+            for ($c = $captions.Count - 1; $c -ge 0; $c--) {
+                if ($captions[$c].Index -lt $tm.Index) { $tableCap = $captions[$c].Text; break }
+            }
+            foreach ($r in $rules) {
+                if ($tableCap -match $r.Pattern) { $tableFill = $r.Fill; $tableRule = $r.Pattern; break }
+            }
+        }
+        $shd = New-Shd -Hex $tableFill
 
         # Which trailing rows to leave alone when the footnote style is absent.
         $trailingFrom = $rows.Count
@@ -216,6 +305,11 @@ foreach ($target in $targets) {
             if ($skip) { continue }
 
             $banners++
+            if ($rules.Count -gt 0) {
+                $key = if ($tableRule) { "$tableRule -> $tableFill" } else { "(unmatched) -> $tableFill" }
+                if (-not $groups.ContainsKey($key)) { $groups[$key] = 0 }
+                $groups[$key]++
+            }
             if ($shown -lt 6) {
                 Write-Host ("    {0}" -f $text.Substring(0, [Math]::Min(64, $text.Length))) -ForegroundColor DarkGray
                 $shown++
@@ -225,11 +319,11 @@ foreach ($target in $targets) {
             $cell = $cells[0].Value
             $new  = [regex]::Replace($cell, '<w:shd\b[^>]*/>', '')
             if ($new -match '(?s)<w:tcPr(?:\s[^>]*)?>.*?</w:tcPr>') {
-                $new = [regex]::Replace($new, '(?s)(<w:tcPr(?:\s[^>]*)?>)(.*?)(</w:tcPr>)', ('${1}${2}' + $SHD + '${3}'), 1)
+                $new = [regex]::Replace($new, '(?s)(<w:tcPr(?:\s[^>]*)?>)(.*?)(</w:tcPr>)', ('${1}${2}' + $shd + '${3}'), 1)
             } elseif ($new -match '<w:tcPr\s*/>') {
-                $new = [regex]::Replace($new, '<w:tcPr\s*/>', "<w:tcPr>$SHD</w:tcPr>", 1)
+                $new = [regex]::Replace($new, '<w:tcPr\s*/>', "<w:tcPr>$shd</w:tcPr>", 1)
             } else {
-                $new = [regex]::Replace($new, '^(<w:tc(?:\s[^>]*)?>)', ('${1}<w:tcPr>' + $SHD + '</w:tcPr>'), 1)
+                $new = [regex]::Replace($new, '^(<w:tc(?:\s[^>]*)?>)', ('${1}<w:tcPr>' + $shd + '</w:tcPr>'), 1)
             }
 
             if (-not $NoBold) {
@@ -261,6 +355,9 @@ foreach ($target in $targets) {
     }
 
     Write-Host ("  Banner rows found: {0}  |  rewritten: {1}" -f $banners, $edits.Count) -ForegroundColor DarkGray
+    foreach ($k in ($groups.Keys | Sort-Object)) {
+        Write-Host ("    {0}  {1} row(s)" -f $k, $groups[$k]) -ForegroundColor DarkGray
+    }
 
     if ($edits.Count -eq 0) {
         Write-Host "  Nothing to change. File unchanged." -ForegroundColor DarkGray

@@ -94,6 +94,58 @@ For single-series charts (slide 12): no legend at all.
 3. No border, no fill
 4. Number format: #,##0
 
+## Line Charts (time series)
+
+A quantity tracked over time is a line, not a bar. Use this for anything with a
+date or a quarter on the category axis.
+
+### Lines
+
+1. Double-click the chart to enter edit mode
+2. Click a line to select the series
+3. Right-click > Format Data Series > Line
+4. Solid line, color from the palette, width 2.25pt
+5. Marker Options: None
+6. Uncheck "Smoothed line". A smoothed line invents values between the real
+   data points, which is a misrepresentation in a report
+7. No shadow. The drop shadow that gives a bar its lift reads as a blur on a
+   2pt line
+8. Repeat for each series with its color
+
+### Axes and gridlines
+
+Same as bar charts: Y axis no line, no tick marks, Arial 8pt; horizontal
+gridlines #EEEEF2 at 0.75pt; X axis a #D8D8DE 0.5pt baseline with its vertical
+gridlines deleted. The Y axis number format follows the quantity - `#,##0` for
+counts, `$#,##0.0,,,"B"` to read dollars in billions.
+
+### Legend
+
+A time series usually has more than one line, so use the built-in legend at the
+bottom rather than the custom circle legend. Arial 8pt, no fill, no border.
+
+### Assigning colors across a pair of figures
+
+When two figures report the same categories against different measures - counts
+in one, dollars in the other - the category has to keep its color in both. The
+series order often differs between them, so the color cannot simply follow the
+series index. Fix the color to the category and map it per figure:
+
+| Category | Color |
+|---|---|
+| Total | Navy Soft #1A3C8F |
+| Completed | Shamrock Soft #2AB58E |
+| Planning | Tawny Soft #E87A30 |
+
+`ApplyLineSeriesColors` in both .bas files encodes exactly this: a default
+palette rotation for any unmapped figure, then a per-figure override where the
+order needs correcting.
+
+Note that this is the one place the line styler behaves differently from the
+bar and pie stylers. An unmapped bar or pie chart is left alone; an unmapped
+line chart still gets the palette in order, so a new figure comes out styled
+the first time the macro runs rather than in Excel's defaults.
+
 ## Pie Charts (Slides 1, 2, 10, 11)
 
 ### Slices

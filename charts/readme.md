@@ -11,12 +11,18 @@ not build them from data.
 | File | What it does |
 |---|---|
 | `StyleCharts_PowerPoint.bas` | Styles every chart in the active presentation, keyed by slide number. Entry point `StyleAllCharts`. |
-| `StyleCharts_Excel.bas` | Styles every chart on the figure tabs of the active workbook, keyed by sheet name (`IsFigureTab`, matching `F5-xx`). Entry point `StyleAllCharts`. |
+| `StyleCharts_Excel.bas` | Styles every chart on the figure tabs of the active workbook, keyed by sheet name. Entry point `StyleAllCharts`. `IsFigureTab` accepts any tab named `Fig <n>-<n> ...`, plus a legacy list of job-number tabs. |
 | `chart-styling-guide.md` | The specification both modules implement: bars, pie slices, axes, gridlines, legends, data labels, the palette, per-figure color assignments, how to paste into Word, and the 508 checklist. |
 
 Both modules share the same shape: `StyleAllCharts` walks the charts and hands
-each to `StyleBarChart` or `StylePieChart`, then `ApplyBarSeriesColors` /
-`ApplyPieSliceColors` assign the per-figure colors.
+each to `StyleBarChart`, `StylePieChart`, or `StyleLineChart`, then
+`ApplyBarSeriesColors` / `ApplyPieSliceColors` / `ApplyLineSeriesColors` assign
+the per-figure colors.
+
+A line chart cannot be routed to `StyleBarChart`: that sets
+`ChartGroups(1).GapWidth`, which a line group does not have, so it raises an
+error rather than styling the chart badly. `StyleLineChart` is the arm for a
+time series - 2.25pt stroke, no markers, no smoothing, no shadow.
 
 ## Running one
 
@@ -29,7 +35,10 @@ There is no PowerShell wrapper - these are pasted into the host's VBA editor:
 
 The colors are assigned per figure, by slide number in PowerPoint and by sheet
 name in Excel, so a new deck or workbook needs those mappings extended before
-the right chart gets the right color.
+the right chart gets the right color. Line charts are the exception: an
+unmapped line chart falls back to the palette in order, so it comes out styled
+on the first run and the mapping is only needed when a specific category has to
+keep a specific color.
 
 ## Palette
 

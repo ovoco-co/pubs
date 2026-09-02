@@ -38,11 +38,15 @@ Sub StyleAllCharts()
                 Dim chartType As Long
                 chartType = cht.ChartType
 
-                If chartType = xlPie Or chartType = xl3DPie Or chartType = xlPieExploded Or chartType = xl3DPieExploded Then
-                    StylePieChart cht, sheetName
-                Else
-                    StyleBarChart cht, sheetName
-                End If
+                Select Case chartType
+                    Case xlPie, xl3DPie, xlPieExploded, xl3DPieExploded
+                        StylePieChart cht, sheetName
+                    Case xlLine, xlLineMarkers, xlLineStacked, xlLineMarkersStacked, _
+                         xlLineStacked100, xlLineMarkersStacked100
+                        StyleLineChart cht, sheetName
+                    Case Else
+                        StyleBarChart cht, sheetName
+                End Select
             Next chtObj
         End If
     Next ws
@@ -51,6 +55,14 @@ Sub StyleAllCharts()
 End Sub
 
 Function IsFigureTab(name As String) As Boolean
+    ' A tab named for the figure it holds - "Fig 5-2 Schools Infra",
+    ' "Fig 1-1 Project Counts" - which is what the figure workbooks on file
+    ' actually use. The job-number list below predates that convention.
+    If name Like "Fig #-#*" Then
+        IsFigureTab = True
+        Exit Function
+    End If
+
     Select Case name
         Case "1239-NWIRP", "1240-NWIRP", "1241-NWIRP", "1242-NWIRP", _
              "1243-NWIRP", "1244-NWIRP", "1245-NWIRP", "1246-NWIRP", _
@@ -227,6 +239,128 @@ Sub StyleBarChart(cht As Chart, sheetName As String)
     End If
 End Sub
 
+' ============================================================
+' LINE CHART STYLING
+' ============================================================
+' A time series is a line, and neither of the other two stylers fits it.
+' StyleBarChart in particular sets ChartGroups(1).GapWidth, which a line
+' group does not have, so routing a line chart there raises an error rather
+' than styling it badly.
+Sub StyleLineChart(cht As Chart, sheetName As String)
+    Dim s As Series
+    Dim i As Long
+
+    cht.HasTitle = False
+
+    ' Chart area
+    With cht.ChartArea
+        .Format.Fill.ForeColor.RGB = WHITE_COLOR
+        .Format.Line.Visible = msoFalse
+    End With
+
+    ' Plot area
+    With cht.PlotArea
+        .Format.Fill.ForeColor.RGB = WHITE_COLOR
+        .Format.Line.Visible = msoFalse
+    End With
+
+    ' Stroke first, colour second. On a line the weight and the colour both
+    ' live on Format.Line, so the colour has to be applied last to survive.
+    For i = 1 To cht.SeriesCollection.Count
+        Set s = cht.SeriesCollection(i)
+        With s.Format.Line
+            .Visible = msoTrue
+            .Weight = 2.25
+            .DashStyle = msoLineSolid
+        End With
+
+        ' No shadow. The drop shadow that gives a bar its lift reads as a
+        ' blur on a 2pt line.
+        s.Format.Shadow.Visible = msoFalse
+
+        ' Straight segments between real data points. A smoothed line invents
+        ' values between them, which is a misrepresentation in a report.
+        s.Smooth = False
+        s.MarkerStyle = xlMarkerStyleNone
+    Next i
+
+    ApplyLineSeriesColors cht, sheetName
+
+    ' Y Axis
+    On Error Resume Next
+    With cht.Axes(xlValue)
+        .Format.Line.Visible = msoFalse
+        .MajorTickMark = xlTickMarkNone
+        .MinorTickMark = xlTickMarkNone
+        .TickLabels.Font.Name = "Arial"
+        .TickLabels.Font.Size = 8
+        .TickLabels.Font.Color = BLACK_COLOR
+        .TickLabels.NumberFormat = LineValueFormat(sheetName)
+
+        If .HasMajorGridlines Then
+            With .MajorGridlines.Format.Line
+                .Visible = msoTrue
+                .ForeColor.RGB = WHISPER_LINE
+                .Weight = 0.75
+            End With
+        End If
+
+        If .HasTitle Then
+            With .AxisTitle.Format.TextFrame2.TextRange.Font
+                .Name = "Arial"
+                .Size = 8
+                .Fill.ForeColor.RGB = BLACK_COLOR
+                .Bold = msoFalse
+            End With
+        End If
+    End With
+    On Error GoTo 0
+
+    ' X Axis. A time axis keeps its baseline and loses its gridlines: the
+    ' horizontal ones already carry the reading.
+    On Error Resume Next
+    With cht.Axes(xlCategory)
+        With .Format.Line
+            .Visible = msoTrue
+            .ForeColor.RGB = WHISPER_LINE
+            .Weight = 0.75
+        End With
+        .MajorTickMark = xlTickMarkNone
+        .MinorTickMark = xlTickMarkNone
+        .TickLabels.Font.Name = "Arial"
+        .TickLabels.Font.Size = 8
+        .TickLabels.Font.Color = BLACK_COLOR
+        If .HasMajorGridlines Then .HasMajorGridlines = False
+    End With
+    On Error GoTo 0
+
+    ' Legend
+    If cht.SeriesCollection.Count > 1 Then
+        cht.HasLegend = True
+        With cht.Legend
+            .Position = xlLegendPositionBottom
+            .IncludeInLayout = True
+            .Format.TextFrame2.TextRange.Font.Name = "Arial"
+            .Format.TextFrame2.TextRange.Font.Size = 8
+            .Format.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = BLACK_COLOR
+            .Format.Fill.Visible = msoFalse
+            .Format.Line.Visible = msoFalse
+        End With
+    Else
+        cht.HasLegend = False
+    End If
+End Sub
+
+Function LineValueFormat(sheetName As String) As String
+    Select Case sheetName
+        Case "Fig 1-2 Project Dollars"
+            ' Billions, so the axis reads $1.5B rather than 1500000000
+            LineValueFormat = "$#,##0.0,,,""B"""
+        Case Else
+            LineValueFormat = "#,##0"
+    End Select
+End Function
+
 Sub StylePieChart(cht As Chart, sheetName As String)
     Dim pt As Point
     Dim i As Long
@@ -338,6 +472,43 @@ Sub ApplyBarSeriesColors(cht As Chart, sheetName As String)
         Case "1250-NWIRP"
             SetSeriesColor cht, 1, NAVY_SOFT
     End Select
+End Sub
+
+Sub ApplyLineSeriesColors(cht As Chart, sheetName As String)
+    Dim colors(1 To 7) As Long
+    Dim i As Long
+
+    ' The palette in order, so an unmapped figure tab still comes out styled
+    ' instead of keeping Excel's defaults. That is the deliberate difference
+    ' from ApplyBarSeriesColors, which leaves an unmapped chart alone.
+    colors(1) = NAVY_SOFT
+    colors(2) = TAWNY_SOFT
+    colors(3) = SHAMROCK_SOFT
+    colors(4) = PICTON_SOFT
+    colors(5) = CLARET_SOFT
+    colors(6) = HARVEST_SOFT
+    colors(7) = MULBERRY_SOFT
+
+    ' Per-figure overrides. These two carry the same three categories in a
+    ' different series order, so without the override the same category would
+    ' change colour between the figures.
+    Select Case sheetName
+        Case "Fig 1-1 Project Counts"     ' Total, Completed, Planning
+            colors(1) = NAVY_SOFT
+            colors(2) = SHAMROCK_SOFT
+            colors(3) = TAWNY_SOFT
+        Case "Fig 1-2 Project Dollars"    ' Total, Planning, Completed
+            colors(1) = NAVY_SOFT
+            colors(2) = TAWNY_SOFT
+            colors(3) = SHAMROCK_SOFT
+    End Select
+
+    ' A line carries its colour on the stroke, not on a fill.
+    For i = 1 To cht.SeriesCollection.Count
+        If i <= 7 Then
+            cht.SeriesCollection(i).Format.Line.ForeColor.RGB = colors(i)
+        End If
+    Next i
 End Sub
 
 Sub ApplyPieSliceColors(cht As Chart, sheetName As String)
