@@ -358,22 +358,33 @@ $fixedWidthEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
     if ($cols.Count -eq 0) { return $table }
     $widths = @($cols | ForEach-Object { [int]$_.Groups[1].Value })
 
-    # Explicit per-column widths, optionally gated on the header row.
-    if ($script:ExplicitTwips) {
-        if ($widths.Count -ne $script:ExplicitTwips.Count) { return $table }
+    # Explicit per-column widths, optionally gated on the header row. A table
+    # that does not match is NOT abandoned: it still gets pinned to its own
+    # grid, because -FixedWidth was asked for. Returning here left every table
+    # but the matching family on autofit with no tblW at all.
+    $useExplicit = $false
+    if ($script:ExplicitTwips -and $widths.Count -eq $script:ExplicitTwips.Count) {
+        $useExplicit = $true
         if ($script:HeaderMatch) {
             $row1 = [regex]::Match($table, '(?s)<w:tr(?:\s[^>]*)?>(?:(?!</w:tr>).)*</w:tr>')
-            if (-not $row1.Success) { return $table }
-            $cells = [regex]::Matches($row1.Value, '(?s)<w:tc(?:\s[^>]*)?>(?:(?!</w:tc>).)*</w:tc>')
-            if ($cells.Count -ne $script:HeaderMatch.Count) { return $table }
-            for ($i = 0; $i -lt $cells.Count; $i++) {
-                $t = (([regex]::Matches($cells[$i].Value, '<w:t(?:\s[^>]*)?>(.*?)</w:t>') |
-                       ForEach-Object { $_.Groups[1].Value }) -join '')
-                $t = ([regex]::Replace([System.Net.WebUtility]::HtmlDecode($t), '\s+', ' ')).Trim()
-                if ($t -ne $script:HeaderMatch[$i]) { return $table }
+            if (-not $row1.Success) { $useExplicit = $false }
+            else {
+                $cells = [regex]::Matches($row1.Value, '(?s)<w:tc(?:\s[^>]*)?>(?:(?!</w:tc>).)*</w:tc>')
+                if ($cells.Count -ne $script:HeaderMatch.Count) { $useExplicit = $false }
+                else {
+                    for ($i = 0; $i -lt $cells.Count; $i++) {
+                        $t = (([regex]::Matches($cells[$i].Value, '<w:t(?:\s[^>]*)?>(.*?)</w:t>') |
+                               ForEach-Object { $_.Groups[1].Value }) -join '')
+                        $t = ([regex]::Replace([System.Net.WebUtility]::HtmlDecode($t), '\s+', ' ')).Trim()
+                        if ($t -ne $script:HeaderMatch[$i]) { $useExplicit = $false; break }
+                    }
+                }
             }
         }
+    }
+    if ($useExplicit) {
         $target = $script:ExplicitTwips
+        $script:tablesMatched++
     }
     elseif ($script:TargetTwips -gt 0) {
         # Rescale in proportion; rounding drift goes on the last column so the
@@ -773,6 +784,7 @@ foreach ($target in $targets) {
         } else { $null }
         $script:HeaderMatch   = if ($MatchHeader.Count -gt 0) { $MatchHeader } else { $null }
         $script:tablesPinned  = 0
+        $script:tablesMatched = 0
 
         $documentXml = [System.Text.RegularExpressions.Regex]::Replace(
             $documentXml,
@@ -782,7 +794,8 @@ foreach ($target in $targets) {
         if ($script:ExplicitTwips) {
             $ins = ($ColumnWidthsInches | ForEach-Object { '{0}"' -f $_ }) -join ' / '
             $hdr = if ($script:HeaderMatch) { " matching [$($MatchHeader -join ' | ')]" } else { '' }
-            Write-Host ("  Columns set to $ins on $script:tablesPinned table(s)$hdr") -ForegroundColor DarkGray
+            Write-Host ("  Columns set to $ins on $script:tablesMatched table(s)$hdr" +
+                        "; $($script:tablesPinned - $script:tablesMatched) other table(s) pinned to their own grid") -ForegroundColor DarkGray
         } elseif ($script:TargetTwips -gt 0) {
             Write-Host ("  {0} table(s) pinned to {1}`" (fixed layout)" -f $script:tablesPinned, $TableWidthInches) -ForegroundColor DarkGray
         } else {

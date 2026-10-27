@@ -339,7 +339,11 @@ foreach ($target in $targets) {
     # Word writes document.xml with a UTF-8 BOM; GetString keeps it as a
     # leading U+FEFF. Strip it, and put it back only if it was there.
     $raw = $utf8NoBom.GetString($pkg.Data['word/document.xml'])
-    $hadBom = $raw.StartsWith([char]0xFEFF)
+    # Not StartsWith: PowerShell coerces the char to a string and .NET's
+    # default comparison is culture-sensitive, which treats U+FEFF as
+    # ignorable - so it answers True on a document that has no BOM, and the
+    # rewrite then adds one that was never there.
+    $hadBom = $raw.Length -gt 0 -and $raw[0] -eq [char]0xFEFF
     $doc = $raw.TrimStart([char]0xFEFF)
 
     $bodyAt = $doc.IndexOf('<w:body>')

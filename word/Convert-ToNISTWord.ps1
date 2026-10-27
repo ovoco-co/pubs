@@ -174,7 +174,37 @@
     Do not shade and bold the group-label banner rows inside each table.
 
 .PARAMETER BannerFill
-    Cell fill for a banner row, six hex digits. Default CCECE3.
+    Cell fill for a banner row, six hex digits. Default CCECE3, the Shamrock
+    Green 80% tint. This is the fallback for any table -BannerFillRules does
+    not claim.
+
+.PARAMETER BannerFillRules
+    Colour-code the banner rows by which population a table describes, read
+    from the caption above it. Each entry is 'Pattern=HEX', first match wins:
+
+        -BannerFillRules 'Hospital=CCECE3','School=F6DFCC'
+
+    A table with no caption of its own inherits the caption above it, so a
+    continuation table keeps its group's colour. Anything unmatched falls
+    back to -BannerFill. See Set-TableBannerRows.ps1 for the full rules.
+
+.PARAMETER AccentBarColor
+    Runs a colored bar down the left edge of every table row, the spine that
+    tells a reader which population a table belongs to. Six hex digits. Off
+    unless this or -AccentBarRules is given. Full strength, not a tint: a 4pt
+    rule needs the saturation to register.
+
+.PARAMETER AccentBarRules
+    Colour the accent bar from the caption above each table, same shape as
+    -BannerFillRules:
+
+        -AccentBarRules 'Hospital=009E73','School=D55E00'
+
+    Anything unmatched falls back to -AccentBarColor, or Resolution Blue
+    00257A if that was not given. See Set-TableAccentBar.ps1.
+
+.PARAMETER AccentBarPoints
+    Accent bar thickness in points. Default 4.
 
 .PARAMETER SkipTableFootnotes
     Do not collapse each table's footnote rows into a single full-width row.
@@ -324,6 +354,15 @@ param(
     [switch]$SkipTableBanners,
 
     [string]$BannerFill = 'CCECE3',
+
+    [string[]]$BannerFillRules = @(),
+
+    # Off unless asked for: a plain conversion should not grow a spine.
+    [string]$AccentBarColor = '',
+
+    [string[]]$AccentBarRules = @(),
+
+    [double]$AccentBarPoints = 4,
 
     [switch]$SkipTableFootnotes,
 
@@ -902,6 +941,7 @@ $tableIndents = Join-Path $PSScriptRoot 'Restore-TableIndents.ps1'
 $tableFootnts = Join-Path $PSScriptRoot 'Merge-TableFootnotes.ps1'
 $tableCaption = Join-Path $PSScriptRoot 'Set-NISTTableCaptions.ps1'
 $tableBanners = Join-Path $PSScriptRoot 'Set-TableBannerRows.ps1'
+$tableAccent  = Join-Path $PSScriptRoot 'Set-TableAccentBar.ps1'
 
 foreach ($outFile in $converted) {
     Write-Host ""
@@ -977,10 +1017,26 @@ foreach ($outFile in $converted) {
     # so whatever is still full-width and unclaimed is a group label.
     if (-not $SkipTableBanners) {
         if (Test-Path -LiteralPath $tableBanners -PathType Leaf) {
-            try { & $tableBanners -File $outFile -Fill $BannerFill -Force }
+            $bannerArgs = @{ File = $outFile; Fill = $BannerFill; Force = $true }
+            if ($BannerFillRules.Count -gt 0) { $bannerArgs['FillRules'] = $BannerFillRules }
+            try { & $tableBanners @bannerArgs }
             catch { Write-Warning "  Banner shading skipped: $($_.Exception.Message)" }
         } else {
             Write-Warning "  Set-TableBannerRows.ps1 not found; group-label rows left unshaded."
+        }
+    }
+
+    # The accent bar is the other half of the population code, and it does not
+    # need banner rows, so it carries through the small summary tables too.
+    if ($AccentBarColor -or $AccentBarRules.Count -gt 0) {
+        if (Test-Path -LiteralPath $tableAccent -PathType Leaf) {
+            $accentArgs = @{ File = $outFile; WidthPoints = $AccentBarPoints; Force = $true }
+            if ($AccentBarColor)            { $accentArgs['Color']      = $AccentBarColor }
+            if ($AccentBarRules.Count -gt 0) { $accentArgs['ColorRules'] = $AccentBarRules }
+            try { & $tableAccent @accentArgs }
+            catch { Write-Warning "  Accent bar skipped: $($_.Exception.Message)" }
+        } else {
+            Write-Warning "  Set-TableAccentBar.ps1 not found; tables left without an accent bar."
         }
     }
 
