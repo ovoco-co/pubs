@@ -24,6 +24,13 @@ Private Const WHITE_COLOR As Long = &HFFFFFF
 Private Const BLACK_COLOR As Long = &H0
 
 Sub StyleAllCharts()
+    StyleWorkbook
+    MsgBox "Styling complete. Manually adjust pie labels for clean positioning.", vbInformation
+End Sub
+
+' The same walk without the MsgBox. Call this one from COM automation: a hidden
+' application has nowhere to show a dialog and hangs forever on it.
+Sub StyleWorkbook()
     Dim ws As Worksheet
     Dim chtObj As ChartObject
     Dim cht As Chart
@@ -50,13 +57,11 @@ Sub StyleAllCharts()
             Next chtObj
         End If
     Next ws
-
-    MsgBox "Styling complete. Manually adjust pie labels for clean positioning.", vbInformation
 End Sub
 
 Function IsFigureTab(name As String) As Boolean
     ' A tab named for the figure it holds - "Fig 5-2 Schools Infra",
-    ' "Fig 1-1 Project Counts" - which is what the figure workbooks on file
+    ' "Fig 1-1 Counts Line" - which is what the figure workbooks on file
     ' actually use. The job-number list below predates that convention.
     If name Like "Fig #-#*" Then
         IsFigureTab = True
@@ -77,8 +82,16 @@ Sub StyleBarChart(cht As Chart, sheetName As String)
     Dim s As Series
     Dim i As Long
     Dim isHistogram As Boolean
+    Dim isStacked As Boolean
 
     isHistogram = (sheetName = "1250-NWIRP")
+
+    ' A stacked group is a different animal: Excel forces Overlap to 100, and
+    ' the per-series drop shadow reads as grime between the bands.
+    Select Case cht.ChartType
+        Case xlColumnStacked, xlBarStacked, xlColumnStacked100, xlBarStacked100
+            isStacked = True
+    End Select
 
     cht.HasTitle = False
 
@@ -106,19 +119,26 @@ Sub StyleBarChart(cht As Chart, sheetName As String)
             .Weight = 1.5
         End With
 
-        With s.Format.Shadow
-            .Visible = msoTrue
-            .ForeColor.RGB = BLACK_COLOR
-            .Transparency = 0.85
-            .Blur = 4
-            .OffsetX = 0
-            .OffsetY = 2
-        End With
+        If isStacked Then
+            s.Format.Shadow.Visible = msoFalse
+        Else
+            With s.Format.Shadow
+                .Visible = msoTrue
+                .ForeColor.RGB = BLACK_COLOR
+                .Transparency = 0.85
+                .Blur = 4
+                .OffsetX = 0
+                .OffsetY = 2
+            End With
+        End If
     Next i
 
     ' Gap and overlap
     With cht.ChartGroups(1)
-        If isHistogram Then
+        If isStacked Then
+            .GapWidth = 40
+            .Overlap = 100
+        ElseIf isHistogram Then
             .GapWidth = 0
             .Overlap = 0
         Else
@@ -140,14 +160,7 @@ Sub StyleBarChart(cht As Chart, sheetName As String)
         .TickLabels.Font.Name = "Arial"
         .TickLabels.Font.Size = 8
         .TickLabels.Font.Color = BLACK_COLOR
-        Select Case sheetName
-            Case "1241-NWIRP", "1242-NWIRP", "1243-NWIRP", "1244-NWIRP", "1245-NWIRP"
-                .TickLabels.NumberFormat = "0%"
-            Case "1246-NWIRP", "1247-NWIRP"
-                .TickLabels.NumberFormat = "0""%"""
-            Case Else
-                .TickLabels.NumberFormat = "#,##0"
-        End Select
+        .TickLabels.NumberFormat = AxisValueFormat(sheetName)
 
         If .HasMajorGridlines Then
             With .MajorGridlines.Format.Line
@@ -214,7 +227,7 @@ Sub StyleBarChart(cht As Chart, sheetName As String)
             .Position = xlLegendPositionBottom
             .IncludeInLayout = True
             .Format.TextFrame2.TextRange.Font.Name = "Arial"
-            .Format.TextFrame2.TextRange.Font.Size = 8
+            .Format.TextFrame2.TextRange.Font.Size = 9   ' one step up from the axis: on a stacked chart the legend is the only key to which band is which
             .Format.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = BLACK_COLOR
             .Format.Fill.Visible = msoFalse
             .Format.Line.Visible = msoFalse
@@ -295,7 +308,7 @@ Sub StyleLineChart(cht As Chart, sheetName As String)
         .TickLabels.Font.Name = "Arial"
         .TickLabels.Font.Size = 8
         .TickLabels.Font.Color = BLACK_COLOR
-        .TickLabels.NumberFormat = LineValueFormat(sheetName)
+        .TickLabels.NumberFormat = AxisValueFormat(sheetName)
 
         If .HasMajorGridlines Then
             With .MajorGridlines.Format.Line
@@ -341,7 +354,7 @@ Sub StyleLineChart(cht As Chart, sheetName As String)
             .Position = xlLegendPositionBottom
             .IncludeInLayout = True
             .Format.TextFrame2.TextRange.Font.Name = "Arial"
-            .Format.TextFrame2.TextRange.Font.Size = 8
+            .Format.TextFrame2.TextRange.Font.Size = 9   ' one step up from the axis: on a stacked chart the legend is the only key to which band is which
             .Format.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = BLACK_COLOR
             .Format.Fill.Visible = msoFalse
             .Format.Line.Visible = msoFalse
@@ -351,13 +364,19 @@ Sub StyleLineChart(cht As Chart, sheetName As String)
     End If
 End Sub
 
-Function LineValueFormat(sheetName As String) As String
+Function AxisValueFormat(sheetName As String) As String
+    ' The value axis format for a figure, shared by the bar and line stylers
+    ' so a pair of figures showing the same measure cannot drift apart.
     Select Case sheetName
-        Case "Fig 1-2 Project Dollars"
+        Case "1241-NWIRP", "1242-NWIRP", "1243-NWIRP", "1244-NWIRP", "1245-NWIRP"
+            AxisValueFormat = "0%"
+        Case "1246-NWIRP", "1247-NWIRP"
+            AxisValueFormat = "0""%"""
+        Case "Fig 1-2 Dollars Line", "Fig 1-2 Dollars Stacked"
             ' Billions, so the axis reads $1.5B rather than 1500000000
-            LineValueFormat = "$#,##0.0,,,""B"""
+            AxisValueFormat = "$#,##0.0,,,""B"""
         Case Else
-            LineValueFormat = "#,##0"
+            AxisValueFormat = "#,##0"
     End Select
 End Function
 
@@ -471,6 +490,13 @@ Sub ApplyBarSeriesColors(cht As Chart, sheetName As String)
             SetSeriesColor cht, 2, SHAMROCK_SOFT
         Case "1250-NWIRP"
             SetSeriesColor cht, 1, NAVY_SOFT
+
+        ' Stacked, bottom band to top: Completed, past planning but not
+        ' complete, still planning. The stack height is the portfolio total.
+        Case "Fig 1-1 Counts Stacked", "Fig 1-2 Dollars Stacked"
+            SetSeriesColor cht, 1, SHAMROCK_SOFT
+            SetSeriesColor cht, 2, PICTON_SOFT
+            SetSeriesColor cht, 3, TAWNY_SOFT
     End Select
 End Sub
 
@@ -493,14 +519,12 @@ Sub ApplyLineSeriesColors(cht As Chart, sheetName As String)
     ' different series order, so without the override the same category would
     ' change colour between the figures.
     Select Case sheetName
-        Case "Fig 1-1 Project Counts"     ' Total, Completed, Planning
-            colors(1) = NAVY_SOFT
-            colors(2) = SHAMROCK_SOFT
-            colors(3) = TAWNY_SOFT
-        Case "Fig 1-2 Project Dollars"    ' Total, Planning, Completed
-            colors(1) = NAVY_SOFT
+        ' Completed and Planning only. Total is the envelope, not a peer:
+        ' it is flat from 2023 and on the dollar axis it is 12x Completed,
+        ' which flattens Completed out of view.
+        Case "Fig 1-1 Counts Line", "Fig 1-2 Dollars Line"
+            colors(1) = SHAMROCK_SOFT
             colors(2) = TAWNY_SOFT
-            colors(3) = SHAMROCK_SOFT
     End Select
 
     ' A line carries its colour on the stroke, not on a fill.

@@ -4,9 +4,12 @@ Step-by-step for styling charts in Ch5_Figures.pptx before pasting into the Word
 
 ## Setup
 
-1. Open Ch5_Figures.pptx in PowerPoint desktop
+1. Open the figures deck in PowerPoint desktop
 2. For each slide, delete the title text box, subtitle text box, accent stripe, and bottom rule. Keep only the chart.
 3. Resize the chart to fill the entire slide: position 0,0, width 6.5", height 4.5"
+4. Name each slide after its figure (Home > Section, or the Selection Pane). The macro reads the slide name as the figure key, the same way the Excel module reads the sheet name, so a named slide gets its colors and number format without anyone tracking slide numbers.
+
+`Build-ChartDeck.ps1` does all four for a deck built from an Excel workbook.
 
 ## Bar Charts (Slides 3, 4, 5, 6, 7, 8, 9, 12)
 
@@ -80,10 +83,20 @@ For charts with 2-4 series, build a custom legend instead of using the default:
 Alternative (faster but less polished):
 1. Keep the default legend
 2. Move it to bottom center
-3. Font: Arial 8pt, color #6B6B76
+3. Font: Arial 9pt, color #6B6B76
 4. No border, no fill
-5. Right-click legend > Format Legend > Legend Options > uncheck "Show the legend without overlapping the chart"
-6. Resize the plot area to leave room for the legend at the bottom
+5. Right-click legend > Format Legend > Legend Options > leave "Show the legend without overlapping the chart" CHECKED
+
+The legend is one step larger than the axis because on a stacked chart it is
+the only key to which band is which. Leave it in the layout: taking it out
+gives the plot the whole frame and floats the legend on top of it, which lands
+it across the category labels on any chart with a two-line date axis.
+
+Keep the labels short. A legend entry is the category name, not the
+measurement: `Completed`, not `Completed - Number of Projects (DIs)`. What is
+being measured belongs on the value axis title, where it is said once. Three
+long entries will not fit across a 6.5in figure and Excel shrinks them rather
+than wrapping.
 
 For single-series charts (slide 12): no legend at all.
 
@@ -93,6 +106,28 @@ For single-series charts (slide 12): no legend at all.
 2. Font: Arial 8pt bold, color #33333B
 3. No border, no fill
 4. Number format: #,##0
+
+## Stacked Columns (composition over time)
+
+Reach for a stacked column when the series are parts of one whole and the
+reading is how the mix changes. The height of the stack is the total, so the
+total is present without being plotted as a competing series - which is what
+goes wrong if it is added as a fourth bar or a line: it is the envelope, so it
+dwarfs its own parts and flattens them into the baseline.
+
+Set up as for a bar chart, with three differences:
+
+1. Gap Width 40%, Overlap 100%. A stacked group has to be fully overlapped or
+   the bands step sideways instead of stacking, and the narrower gap is what
+   turns a long quarterly series into a readable band of columns
+2. No shadow on the series. The drop shadow that lifts a free-standing bar off
+   the page reads as grime in the seam between two bands, because the band above
+   is sitting directly on it
+3. Order the series so the one the reader is tracking sits on the baseline. A
+   band that floats between two others has no fixed edge to read against, so
+   only the bottom band and the total are actually measurable
+
+Stack order runs bottom to top in series order.
 
 ## Line Charts (time series)
 
@@ -133,9 +168,10 @@ series index. Fix the color to the category and map it per figure:
 
 | Category | Color |
 |---|---|
-| Total | Navy Soft #1A3C8F |
 | Completed | Shamrock Soft #2AB58E |
+| Other statuses | Picton Soft #7CC5EE |
 | Planning | Tawny Soft #E87A30 |
+| Total | Navy Soft #1A3C8F |
 
 `ApplyLineSeriesColors` in both .bas files encodes exactly this: a default
 palette rotation for any unmapped figure, then a per-figure override where the

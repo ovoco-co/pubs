@@ -9,9 +9,9 @@ from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 
 
-START_URL = "https://www.itophub.io/wiki/page?id=3_2_0:start"
+START_URL = "https://www.itophub.io/wiki/page?id=3_3_0:start"
 MAX_DEPTH = 4
-OUTPUT_DIR = "downloaded_docs"
+OUTPUT_DIR = "/home/artist/ovoco/ovoco/documentation/itop3-3"
 IMAGES_DIR = os.path.join(OUTPUT_DIR, "images")
 DELAY_SECONDS = 3.0
 
@@ -33,13 +33,18 @@ def safe_filename_from_url(url: str, default_ext: str = ".bin") -> str:
     if not path:
         path = "index"
 
-    filename = f"{parsed.netloc}_{path}"
+    # A wiki page is named by its id, "3_3_0:start", not by the site and the script that served
+    # it. A URL with no id keeps the last path segment and the query.
+    query = dict(q.split("=", 1) for q in parsed.query.split("&") if "=" in q)
+    if "id" in query:
+        filename = query["id"]
+    else:
+        filename = path.rsplit("/", 1)[-1] + ("_" + parsed.query if parsed.query else "")
+
     filename = re.sub(r"[^\w\-_.]+", "_", filename)
 
-    if parsed.query:
-        filename += "_" + re.sub(r"[^\w\-_.]+", "_", parsed.query)
-
-    if not os.path.splitext(filename)[1]:
+    # The site name carries a dot, so splitext read it as an extension and never added one.
+    if not filename.lower().endswith(default_ext):
         filename += default_ext
 
     return filename
@@ -118,16 +123,17 @@ def download_image(image_url: str, page_url: str) -> str | None:
 
         os.makedirs(IMAGES_DIR, exist_ok=True)
 
-        # Preserve extension if possible
+        # The wiki serves every image through fetch.php?media=<id>, so the path's last segment
+        # is the same for all of them; the media id is the name. A plain image URL keeps its own.
+        query = dict(q.split("=", 1) for q in parsed.query.split("&") if "=" in q)
         path = parsed.path.strip("/")
-        base_name = path.split("/")[-1] if path else "image"
+        base_name = query.get("media") or (path.split("/")[-1] if path else "image")
         base_name = re.sub(r"[^\w\-_.]+", "_", base_name)
 
         if not os.path.splitext(base_name)[1]:
             base_name += ".bin"
 
-        # Make filename unique-ish by including host/path
-        filename = f"{parsed.netloc}_{base_name}"
+        filename = base_name
         local_path = os.path.join(IMAGES_DIR, filename)
 
         if os.path.exists(local_path):
