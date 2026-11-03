@@ -1,0 +1,11 @@
+# Packages used by the scripts in md-docx/ and scrape/
+beautifulsoup4
+markdown
+markdownify
+pymupdf
+pypandoc
+pypdf
+python-docx
+pywin32
+playwright
+requests

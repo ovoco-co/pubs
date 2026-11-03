@@ -1,0 +1,171 @@
+<#
+.SYNOPSIS
+    Sets the document title metadata (dc:title in docProps/core.xml) on
+    a Word file or all Word files in a folder.
+
+.DESCRIPTION
+    Updates the dc:title element inside the docProps/core.xml part of a
+    Word package (.docx/.dotx/.docm/.dotm). This is the title shown in
+    Word's File > Info > Properties > Title field and pulled by the
+    { TITLE } field code in headers or footers.
+
+    Operates directly on the ZIP package via System.IO.Compression - no
+    Word installation required.
+
+.PARAMETER File
+    Path to a single Word file. Either this or -Folder is required.
+
+.PARAMETER Folder
+    Path to a folder. Applies to every Word file in the folder.
+
+.PARAMETER Title
+    The title string to set. If omitted, the script walks each target file
+    one at a time, shows its name, and prompts you for that file's title.
+    If supplied, the same title is applied to every target.
+
+.PARAMETER Force
+    Skip the confirmation prompt (only applies when -Title is supplied;
+    the per-file prompt is its own confirmation).
+
+.EXAMPLE
+    .\Set-DocTitle.ps1 -File "Report-Template.dotx" -Title "Quarterly Status Report"
+
+.EXAMPLE
+    .\Set-DocTitle.ps1 -Folder "C:\templates" -Title "Annual Investigation Report"
+
+.EXAMPLE
+    # Prompt for each file's title, one at a time:
+    .\Set-DocTitle.ps1 -Folder "C:\templates"
+#>
+
+[CmdletBinding(DefaultParameterSetName='File')]
+param(
+    [Parameter(Mandatory=$true, ParameterSetName='File')]
+    [string]$File,
+
+    [Parameter(Mandatory=$true, ParameterSetName='Folder')]
+    [string]$Folder,
+
+    [string]$Title,
+
+    [switch]$Force
+)
+
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.Web
+
+$targets = @()
+if ($PSCmdlet.ParameterSetName -eq 'File') {
+    if (-not (Test-Path -LiteralPath $File -PathType Leaf)) { throw "File not found: $File" }
+    $targets += (Resolve-Path -LiteralPath $File).ProviderPath
+} else {
+    if (-not (Test-Path -LiteralPath $Folder -PathType Container)) { throw "Folder not found: $Folder" }
+    $folderResolved = (Resolve-Path -LiteralPath $Folder).ProviderPath
+    $targets = [System.IO.DirectoryInfo]::new($folderResolved).GetFiles() |
+        Where-Object { $_.Extension -match '^\.(docx|dotx|docm|dotm)$' } |
+        ForEach-Object { $_.FullName }
+}
+
+if ($targets.Count -eq 0) { throw "No supported Word files found." }
+
+$promptPerFile = -not $PSBoundParameters.ContainsKey('Title')
+
+if ($promptPerFile) {
+    Write-Host "No -Title supplied. You will be prompted for each file's title." -ForegroundColor Cyan
+    Write-Host "$($targets.Count) file(s) to process. Leave a title blank to skip that file." -ForegroundColor Cyan
+} else {
+    Write-Host "Setting document title to: $Title" -ForegroundColor Cyan
+    Write-Host "Targets:" -ForegroundColor Cyan
+    $targets | ForEach-Object { Write-Host "  $_" }
+    Write-Host ""
+    if (-not $Force) {
+        $reply = Read-Host "Proceed? (y/N)"
+        if ($reply -notmatch '^[yY]') { throw "Aborted." }
+    }
+}
+
+$i = 0
+foreach ($target in $targets) {
+    $i++
+
+    if ($promptPerFile) {
+        Write-Host ""
+        Write-Host "[$i/$($targets.Count)] $([System.IO.Path]::GetFileName($target))" -ForegroundColor Cyan
+        $fileTitle = Read-Host "Title (blank to skip)"
+        if ([string]::IsNullOrWhiteSpace($fileTitle)) {
+            Write-Host "  Skipped." -ForegroundColor DarkGray
+            continue
+        }
+    } else {
+        $fileTitle = $Title
+    }
+
+    $encodedTitle = [System.Web.HttpUtility]::HtmlEncode($fileTitle)
+
+    Write-Host ""
+    Write-Host "Processing $target..." -ForegroundColor Yellow
+
+    # Read core.xml
+    $coreXml = $null
+    $stream = [System.IO.File]::Open($target, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    try {
+        $zip = New-Object System.IO.Compression.ZipArchive($stream, [System.IO.Compression.ZipArchiveMode]::Read)
+        try {
+            $entry = $zip.GetEntry('docProps/core.xml')
+            if (-not $entry) { Write-Warning "  No docProps/core.xml. Skipping."; continue }
+            $reader = New-Object System.IO.StreamReader($entry.Open())
+            try { $coreXml = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        } finally { $zip.Dispose() }
+    } finally { $stream.Dispose() }
+
+    # Replace or insert <dc:title>
+    if ($coreXml -match '<dc:title\b[^>]*>.*?</dc:title>') {
+        $coreXml = [regex]::Replace($coreXml, '<dc:title\b[^>]*>.*?</dc:title>', "<dc:title>$encodedTitle</dc:title>", 1)
+    } elseif ($coreXml -match '<dc:title\s*/>') {
+        $coreXml = [regex]::Replace($coreXml, '<dc:title\s*/>', "<dc:title>$encodedTitle</dc:title>", 1)
+    } else {
+        # Insert before </cp:coreProperties> (the root element close)
+        if ($coreXml -match '</cp:coreProperties>') {
+            $coreXml = [regex]::Replace($coreXml, '</cp:coreProperties>', "<dc:title>$encodedTitle</dc:title></cp:coreProperties>", 1)
+        } else {
+            Write-Warning "  Cannot insert title (no </cp:coreProperties> found). Skipping."
+            continue
+        }
+    }
+
+    # Write the modified core.xml back into the package
+    $tempZip = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "doctitle-$([guid]::NewGuid()).zip")
+    $srcStream = [System.IO.File]::OpenRead($target)
+    try {
+        $srcZip = New-Object System.IO.Compression.ZipArchive($srcStream, [System.IO.Compression.ZipArchiveMode]::Read)
+        try {
+            $outStream = [System.IO.File]::Create($tempZip)
+            try {
+                $outZip = New-Object System.IO.Compression.ZipArchive($outStream, [System.IO.Compression.ZipArchiveMode]::Create)
+                try {
+                    foreach ($e in $srcZip.Entries) {
+                        $newEntry = $outZip.CreateEntry($e.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
+                        if ($e.FullName -eq 'docProps/core.xml') {
+                            $w = New-Object System.IO.StreamWriter($newEntry.Open(), [System.Text.Encoding]::UTF8)
+                            try { $w.Write($coreXml) } finally { $w.Dispose() }
+                        } else {
+                            $es = $e.Open()
+                            try {
+                                $ns = $newEntry.Open()
+                                try { $es.CopyTo($ns) } finally { $ns.Dispose() }
+                            } finally { $es.Dispose() }
+                        }
+                    }
+                } finally { $outZip.Dispose() }
+            } finally { $outStream.Dispose() }
+        } finally { $srcZip.Dispose() }
+    } finally { $srcStream.Dispose() }
+
+    Move-Item -LiteralPath $tempZip -Destination $target -Force
+    Write-Host "  Title set." -ForegroundColor Green
+}
+
+Write-Host ""
+Write-Host "Done. Verify in Word: File > Info > Properties > Title." -ForegroundColor Green
