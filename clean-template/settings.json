@@ -1,0 +1,37 @@
+{
+  "_about": "Every decision the pipeline makes. Change a value here and rerun; never fix a chapter by hand between steps. See README.md.",
+
+  "template_source": "C:/Users/Artist/Documents/HM-261113/HM-NCSTAR-Template.docx",
+
+  "exclude": ["*_000_All-*"],
+  "_exclude": "File-name patterns left out of a run: compiled whole-report copies repeat the chapters.",
+
+  "keep_toc": ["*Chapter-00*", "*Preface*", "*Front*"],
+  "_keep_toc": "Front matter files keep their table of contents and lists of tables/figures; every other chapter loses them (step 02).",
+
+  "word_step_timeout_minutes": 30,
+  "_word_step_timeout_minutes": "Longest a Word step (03, 11, 12, 13) may take before its hidden Word is ended and the run stops.",
+
+  "style_map": {
+    "_about": "Author style id -> template style id, applied by the strip step.",
+    "NoSpacing": "BodyText"
+  },
+
+  "table_style": "HM-Data",
+
+  "group_row_fill": "CCD3E4",
+  "_group_row_fill": "Fill for full-width group-label rows inside tables. CCD3E4 is the theme's light blue, one step darker than HM-Data's E6E9F2 banding. Use 'auto' for bold only, no fill.",
+
+  "optional_steps": {
+    "three_column_widths": false,
+    "accent_bar": false
+  },
+
+  "three_column_widths_inches": [2.0, 0.5, 0.5],
+
+  "accent_bar": {
+    "_about": "Caption pattern -> bar color. First match wins. Unmatched tables get 'color'.",
+    "color": "00257A",
+    "color_rules": []
+  }
+}
