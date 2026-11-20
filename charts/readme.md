@@ -15,6 +15,11 @@ not build them from data.
 | `StyleCharts_Excel.bas` | Styles every chart on the figure tabs of the active workbook, keyed by sheet name. Entry point `StyleAllCharts`. `IsFigureTab` accepts any tab named `Fig <n>-<n> ...`, plus a legacy list of job-number tabs. |
 | `Build-ChartDeck.ps1` | Builds a figures deck from an Excel workbook, one chart per slide, each slide named after its worksheet. |
 | `chart-styling-guide.md` | The specification both modules implement: bars, pie slices, axes, gridlines, legends, data labels, the palette, per-figure color assignments, how to paste into Word, and the 508 checklist. |
+| `gfx_chart_spec.py` | Writes `chart_spec.json` for `Build-GfxChartDecks.ps1`: one entry per GFX chart (NWIRP 2-1 chapters 4, 5 and 6) naming its workbook, the original image whose proportions set the slide height, the chart kind and layout, and the series colors. Also writes the Figure 4-24 workbook from the native Word chart's data. |
+| `Build-GfxChartDecks.ps1` | One deck per GFX ID (`<gfx>a-NWIRP.pptx`) plus a 300 dpi PNG. Styles each chart over COM to the guide - Arial 8 pt throughout, the guide palette and lines - sizes it to its placed size so the 8 pt survives, and pastes it into a 6.5 in slide whose height follows the original figure. Covers the scatter, area, horizontal-bar and multi-panel layouts the `.bas` modules lack (`single`, `side`, `stack`, and `grid` with `grid = [columns, rows]`, whose panels share one plot rectangle so axes line up), and needs no VBA project access. |
+| `tighten_source_number.py` | Pulls each deck's source number up to 2 pt under the art and trims the slide height to it, measured from the rendered PNG. |
+| `place_figure_pngs.py` | Replaces the picture above each named figure caption in a Word document with its PNG, at natural size, uncropped. Also replaces a native Word chart. |
+| `build_grid_figures.py` | GFX 1371 (heatmap) and 1381 (contour) as native PowerPoint grids, since Excel has no chart for either: one rectangle per cell with its value printed, on a sequential Claret ramp, black or white text by contrast so every cell passes 4.5:1. |
 
 Both modules share the same shape: `StyleAllCharts` walks the charts and hands
 each to `StyleBarChart`, `StylePieChart`, or `StyleLineChart`, then
@@ -72,6 +77,27 @@ mappings extended before the right chart gets the right color. Line charts are
 the exception: an unmapped line chart falls back to the palette in order, so it
 comes out styled on the first run and the mapping is only needed when a
 specific category has to keep a specific color.
+
+## GFX chart decks
+
+For figures that exist only as images (NWIRP 2-1 chapters 4, 5 and 6), the data is first rebuilt into
+one workbook per chart in the chapter's `charts-xlsx\` folder, then:
+
+```powershell
+python gfx_chart_spec.py --hm C:\Users\Artist\Documents\HM-261113 --hm5 C:\Users\Artist\Documents\HM-261119
+.\Build-GfxChartDecks.ps1 -Spec .\chart_spec.json            # -Only 1317,1329 to rebuild a few
+python build_grid_figures.py --hm C:\Users\Artist\Documents\HM-261113
+python tighten_source_number.py <chapter>\ppt [<chapter>\ppt ...]   # then re-render the PNGs
+python place_figure_pngs.py <chapter>.docx <chapter>\png 4-5=1317 4-6=1318 ...
+```
+
+Decks and PNGs land in each chapter folder's `ppt\` and `png\`. The grid script writes only the
+deck; render its PNG from PowerPoint at 300 dpi, as the build script does.
+
+`tighten_source_number.py` measures each rendered PNG, moves the source number to 2 pt under the
+lowest art, and trims the slide to it (Excel's chart padding otherwise leaves a gap of up to a
+quarter inch). `place_figure_pngs.py` swaps the picture above each figure caption for the PNG at its
+natural size, with any crop the old picture carried removed.
 
 ## Palette
 
