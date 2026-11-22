@@ -12,6 +12,8 @@
     REBASE (change basedOn to break Normal inheritance):
       Heading1-9, Series                               -> xxheader
       Front_matter_head1-4                             -> Heading1-4 (match, no numbering)
+      AppendixHead1-4 are numbered by their own list, "Appendix A." / A.1. /
+      A.1.1. / A.1.1.1., as in the NCSTAR template (the appendix ladder)
       Caption                                          -> xxheader (Semibold 10pt, no bold)
       Caption_Table, Caption_Figure                    -> Caption
       BodyText                                         -> xxbase
@@ -935,8 +937,9 @@ foreach ($target in $targets) {
     # marker <w:numPr><w:numId w:val="0"/></w:numPr> on every level so the
     # suppression holds regardless of which Heading it inherits from.
     # $SuppressNumbering is provided by the OoXml module.
-    foreach ($ahId in @('AppendixHead','AppendixHead2','AppendixHead3','AppendixHead4',
-                        'Appendix_Head','Appendix_Head2','Appendix_Head3','Appendix_Head4',
+    # AppendixHead 1-4 are not suppressed here: the appendix ladder (below, before
+    # the numbering pass) gives them their own list, "Appendix A." / A.1. ...
+    foreach ($ahId in @('Appendix_Head','Appendix_Head2','Appendix_Head3','Appendix_Head4',
                         'Frontmatterhead1','Frontmatterhead2','Frontmatterhead3','Frontmatterhead4')) {
         $ah = Edit-StyleBlock -Xml $xml -Id $ahId -Mutator $SuppressNumbering
         $xml = $ah[0]
@@ -1596,12 +1599,15 @@ foreach ($target in $targets) {
                 $nextNum++
             }
             # abstractNum elements must precede every num element in numbering.xml.
+            # Regex INSTANCE Replace, which takes a count: the static
+            # [regex]::Replace has no count overload, so a 4th argument of 1 is
+            # RegexOptions.IgnoreCase and the abstracts landed before EVERY num.
             if ($numberingXml -match '<w:num\b') {
-                $numberingXml = [regex]::Replace($numberingXml, '(<w:num\b)', $newAbstracts + '$1', 1)
+                $numberingXml = ([regex]'(<w:num\b)').Replace($numberingXml, ($newAbstracts + '$1'), 1)
             } else {
-                $numberingXml = [regex]::Replace($numberingXml, '</w:numbering>', $newAbstracts, 1)
+                $numberingXml = ([regex]'</w:numbering>').Replace($numberingXml, ($newAbstracts + '</w:numbering>'), 1)
             }
-            $numberingXml = [regex]::Replace($numberingXml, '</w:numbering>', $newNums + '</w:numbering>', 1)
+            $numberingXml = ([regex]'</w:numbering>').Replace($numberingXml, ($newNums + '</w:numbering>'), 1)
             Write-Host "  List Number family: $($missingNumber.Count) style(s) created with numbering" -ForegroundColor DarkGray
         }
     }
@@ -1616,9 +1622,87 @@ foreach ($target in $targets) {
     $xml = Sort-RunPropertyOrder -Block $xml
     Write-Host "  rPr element order: normalised across $beforeSort run-property block(s)" -ForegroundColor DarkGray
 
+    # ---- Appendix ladder ----
+    # AppendixHead 1-4 are based on Heading 1-4, whose chapter numbering they
+    # must not inherit. The NCSTAR template (NCSTAR-2023_TechPub_template.dotx)
+    # numbers them with their own multilevel list: "Appendix A." on AppendixHead,
+    # then A.1. / A.1.1. / A.1.1.1. on AppendixHead2-4, and chapter text refers
+    # to appendices by those letters ("see Appendix F"). An existing list whose
+    # level 0 is linked to AppendixHead with "Appendix %1." is reused; otherwise
+    # one is added. Each style's own numPr points at it, which overrides the
+    # numbering its Heading base would pass down.
+    $appendixAbsId = $null
+    if ($numberingXml -and $xml -match 'w:styleId="AppendixHead"') {
+        $appendixNumId = $null
+        foreach ($m in [regex]::Matches($numberingXml, '(?s)<w:abstractNum\b[^>]*w:abstractNumId="(\d+)".*?</w:abstractNum>')) {
+            if ($m.Value -match '(?s)<w:lvl w:ilvl="0"[^>]*>(?:(?!</w:lvl>).)*<w:pStyle w:val="AppendixHead"/>(?:(?!</w:lvl>).)*<w:lvlText w:val="Appendix %1\."/>') {
+                $nm = [regex]::Match($numberingXml, '(?s)<w:num\b[^>]*w:numId="(\d+)"[^>]*>\s*<w:abstractNumId w:val="' + $m.Groups[1].Value + '"/>')
+                if ($nm.Success) { $appendixNumId = $nm.Groups[1].Value; $appendixAbsId = $m.Groups[1].Value; break }
+            }
+        }
+        if (-not $appendixNumId) {
+            $absIdsA = @([regex]::Matches($numberingXml, '<w:abstractNum\b[^>]*w:abstractNumId="(\d+)"') | ForEach-Object { [int]$_.Groups[1].Value })
+            $numIdsA = @([regex]::Matches($numberingXml, '<w:num\b[^>]*w:numId="(\d+)"') | ForEach-Object { [int]$_.Groups[1].Value })
+            $appendixAbsId = [string](1 + ((@($absIdsA) + 0 | Measure-Object -Maximum).Maximum))
+            $appendixNumId = [string](1 + ((@($numIdsA) + 0 | Measure-Object -Maximum).Maximum))
+            $ladder = @(
+                @{ Fmt = 'upperLetter'; Text = 'Appendix %1.'; Style = 'AppendixHead' },
+                @{ Fmt = 'decimal';     Text = '%1.%2.';       Style = 'AppendixHead2' },
+                @{ Fmt = 'decimal';     Text = '%1.%2.%3.';    Style = 'AppendixHead3' },
+                @{ Fmt = 'decimal';     Text = '%1.%2.%3.%4.'; Style = 'AppendixHead4' })
+            $lvls = ''
+            for ($i = 0; $i -lt 9; $i++) {
+                if ($i -lt $ladder.Count) {
+                    $L = $ladder[$i]
+                    $lvls += '<w:lvl w:ilvl="' + $i + '"><w:start w:val="1"/><w:numFmt w:val="' + $L.Fmt + '"/>' +
+                             '<w:pStyle w:val="' + $L.Style + '"/><w:suff w:val="space"/><w:lvlText w:val="' + $L.Text + '"/>' +
+                             '<w:lvlJc w:val="left"/><w:pPr><w:ind w:left="0" w:firstLine="0"/></w:pPr><w:rPr><w:rFonts w:hint="default"/></w:rPr></w:lvl>'
+                } else {
+                    $lvls += '<w:lvl w:ilvl="' + $i + '"><w:start w:val="1"/><w:numFmt w:val="none"/><w:suff w:val="nothing"/>' +
+                             '<w:lvlText w:val=""/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="0" w:firstLine="0"/></w:pPr></w:lvl>'
+                }
+            }
+            $abs = '<w:abstractNum w:abstractNumId="' + $appendixAbsId + '"><w:multiLevelType w:val="multilevel"/>' + $lvls + '</w:abstractNum>'
+            $num = '<w:num w:numId="' + $appendixNumId + '"><w:abstractNumId w:val="' + $appendixAbsId + '"/></w:num>'
+            # abstractNum elements must precede every num element. The Regex
+            # INSTANCE Replace takes a count; the static one's 4th argument is
+            # RegexOptions, so a 1 there means IgnoreCase and replaces every match.
+            if ($numberingXml -match '<w:num\b') {
+                $numberingXml = ([regex]'(<w:num\b)').Replace($numberingXml, ($abs + '$1'), 1)
+            } else {
+                $numberingXml = ([regex]'</w:numbering>').Replace($numberingXml, ($abs + '</w:numbering>'), 1)
+            }
+            $numberingXml = ([regex]'</w:numbering>').Replace($numberingXml, ($num + '</w:numbering>'), 1)
+            Write-Host "  Appendix ladder: added list $appendixNumId (Appendix A. / A.1. / A.1.1. / A.1.1.1.)" -ForegroundColor DarkGray
+        } else {
+            Write-Host "  Appendix ladder: reusing list $appendixNumId" -ForegroundColor DarkGray
+        }
+        $wiredA = @()
+        foreach ($pair in @(@('AppendixHead', 0), @('AppendixHead2', 1), @('AppendixHead3', 2), @('AppendixHead4', 3))) {
+            $numPr = '<w:numPr><w:ilvl w:val="' + $pair[1] + '"/><w:numId w:val="' + $appendixNumId + '"/></w:numPr>'
+            $r = Edit-StyleBlock -Xml $xml -Id $pair[0] -Mutator {
+                param($block)
+                $block = [regex]::Replace($block, '(?s)<w:numPr>.*?</w:numPr>|<w:numPr\s*/>', '')
+                $pp = [regex]::Match($block, '(?s)<w:pPr>(.*?)</w:pPr>')
+                if ($pp.Success) {
+                    # CT_PPrBase order: numPr follows keepNext/keepLines/pageBreakBefore/framePr/widowControl
+                    $inner = $pp.Groups[1].Value
+                    $lead = [regex]::Match($inner, '^(?:<w:(?:keepNext|keepLines|pageBreakBefore|framePr|widowControl)\b[^>]*/>)*')
+                    return $block.Substring(0, $pp.Groups[1].Index) + $inner.Insert($lead.Length, $numPr) +
+                           $block.Substring($pp.Groups[1].Index + $pp.Groups[1].Length)
+                }
+                if ($block -match '<w:rPr>') { return ([regex]'<w:rPr>').Replace($block, "<w:pPr>$numPr</w:pPr><w:rPr>", 1) }
+                return $block.Replace('</w:style>', "<w:pPr>$numPr</w:pPr></w:style>")
+            }
+            if ($r[1]) { $xml = $r[0]; $wiredA += $pair[0] }
+        }
+        if ($wiredA.Count) { Write-Host "  Appendix ladder: wired $($wiredA -join ', ') to list $appendixNumId" -ForegroundColor DarkGray }
+    }
+
     # Numbering pass: uses OoXml module functions
     if ($numberingXml) {
         $headingAbstractNumIds = Get-HeadingAbstractNumIds -StylesXml $xml -NumberingXml $numberingXml
+        if ($appendixAbsId) { [void]$headingAbstractNumIds.Add($appendixAbsId) }   # suff=space, like the chapter ladder
         $numberingXml = Set-NumberingSuffix -NumberingXml $numberingXml -HeadingAbstractNumIds $headingAbstractNumIds
         Write-Host "  numbering.xml: suff=space on heading numbering, suff=tab on list numbering" -ForegroundColor DarkGray
 
