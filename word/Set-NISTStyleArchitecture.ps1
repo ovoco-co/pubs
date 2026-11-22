@@ -1622,6 +1622,27 @@ foreach ($target in $targets) {
     $xml = Sort-RunPropertyOrder -Block $xml
     Write-Host "  rPr element order: normalised across $beforeSort run-property block(s)" -ForegroundColor DarkGray
 
+    # ---- Bibliography = References ----
+    # Zotero writes the reference list it generates on Word's built-in
+    # Bibliography style, which Word bases on Normal, so a refreshed list
+    # renders as Normal text instead of the chapter's References look. Make it
+    # an empty style on References: every font, spacing and indent is
+    # inherited, so the two cannot drift. Created when absent, so Zotero's
+    # first Refresh finds it. (Zotero leaves the style alone once the
+    # document's bibliographyStyleHasBeenSet preference is 1.)
+    if ($xml -match 'w:styleId="References"') {
+        $bib = '<w:style w:type="paragraph" w:styleId="Bibliography"><w:name w:val="Bibliography"/>' +
+               '<w:basedOn w:val="References"/><w:next w:val="References"/><w:uiPriority w:val="37"/>' +
+               '<w:unhideWhenUsed/></w:style>'
+        $bm = [regex]::Match($xml, '(?s)<w:style\b[^>]*\bw:styleId="Bibliography"[^>]*>.*?</w:style>')
+        if ($bm.Success) {
+            if ($bm.Value -ne $bib) { $xml = $xml.Remove($bm.Index, $bm.Length).Insert($bm.Index, $bib); Write-Host "  Bibliography: based on References, inherits everything" -ForegroundColor DarkGray }
+        } else {
+            $xml = ([regex]'</w:styles>').Replace($xml, ($bib + '</w:styles>'), 1)
+            Write-Host "  Bibliography: created, based on References" -ForegroundColor DarkGray
+        }
+    }
+
     # ---- Appendix ladder ----
     # AppendixHead 1-4 are based on Heading 1-4, whose chapter numbering they
     # must not inherit. The NCSTAR template (NCSTAR-2023_TechPub_template.dotx)

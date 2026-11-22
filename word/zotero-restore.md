@@ -63,9 +63,23 @@ point, with its formatting kept.
   Answer **Yes** (keep the modification): the text is the author's, not the script's. The
   dry run's matching counts these as unchanged. Compare the counts with the original to
   confirm none were introduced.
-- **Reference list styling.** The regenerated list uses Zotero's *Bibliography* paragraph
-  style, not `References`. Set *Bibliography* to match `References` (or base it on
-  `References`) so the list doesn't change appearance.
+- **Reference list styling.** The regenerated list uses Word's *Bibliography* paragraph
+  style, not `References`. `Set-NISTStyleArchitecture.ps1` makes *Bibliography* an empty
+  style based on `References`, so the list inherits the `References` look and can't drift
+  from it. It creates the style if a chapter doesn't have one yet. Zotero leaves the style
+  alone once the document's `bibliographyStyleHasBeenSet` preference is 1.
+- **Times New Roman in the list.** Zotero passes formatted text (italic titles) to Word as rich
+  text, and Word stamps its default font, Times New Roman, on every run of it as direct
+  formatting, overriding the style. That covers the whole reference list and any citation that
+  carries italics. Zotero rewrites the list on every Refresh, so after refreshing, close Word
+  and run:
+
+  ```powershell
+  .venv\Scripts\python word\zotero_clean_fonts.py <chapter.docx> [...] --write
+  ```
+
+  It removes only that font, and only from Zotero's output. Italics and the rest of the
+  chapter are untouched.
 - **Different group library.** A citation from a different group library refreshes only for
   someone who belongs to that group.
 
