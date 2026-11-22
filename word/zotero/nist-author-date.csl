@@ -12,7 +12,7 @@
     <category citation-format="author-date"/>
     <category field="engineering"/>
     <summary>In-text citations in Chicago author-date form without a comma, (FCC 2020), (Maitland and Peha 2018), (Cordova et al. 2021). Reference list in the NIST Technical Series reference format: Taylor BN (2011) Title. Journal 116(6):797. https://doi.org/...</summary>
-    <updated>2026-11-22T00:00:00+00:00</updated>
+    <updated>2026-11-23T00:00:00+00:00</updated>
     <rights license="http://creativecommons.org/licenses/by-sa/3.0/">This work is licensed under a Creative Commons Attribution-ShareAlike 3.0 License</rights>
   </info>
   <locale xml:lang="en">
@@ -57,12 +57,22 @@
   <macro name="year">
     <choose>
       <if variable="issued">
-        <date variable="issued">
-          <date-part name="year"/>
-        </date>
+        <!-- year-suffix is rendered explicitly below for n.d., and CSL then stops adding it
+             to the first date on its own, so it is rendered explicitly here too (2018a) -->
+        <group>
+          <date variable="issued">
+            <date-part name="year"/>
+          </date>
+          <text variable="year-suffix"/>
+        </group>
       </if>
       <else>
-        <text term="no date" form="short"/>
+        <!-- an undated source renders no date for the year-suffix to attach to, so add it:
+             two undated FCC pages become n.d.-a and n.d.-b -->
+        <group delimiter="-">
+          <text term="no date" form="short"/>
+          <text variable="year-suffix"/>
+        </group>
       </else>
     </choose>
   </macro>
@@ -74,25 +84,34 @@
 
   <!-- ============================================================ titles -->
   <macro name="title">
+    <!-- NIST format: report, web page, dataset and book titles in title case ("Security
+         Requirements for Cryptographic Modules"); article, paper and chapter titles as
+         entered ("The current SI seen from the perspective of the proposed new SI") -->
     <choose>
       <if type="legislation bill legal_case" match="any">
         <text variable="title"/>
       </if>
       <else-if type="book report thesis software dataset" match="any">
-        <text variable="title" font-style="italic"/>
+        <text variable="title" font-style="italic" text-case="title"/>
+      </else-if>
+      <else-if type="article-journal article-magazine article-newspaper paper-conference chapter entry entry-dictionary entry-encyclopedia" match="any">
+        <text variable="title"/>
       </else-if>
       <else>
-        <text variable="title"/>
+        <text variable="title" text-case="title"/>
       </else>
     </choose>
   </macro>
   <macro name="title-short">
     <choose>
       <if type="book report thesis software dataset" match="any">
-        <text variable="title" form="short" font-style="italic"/>
+        <text variable="title" form="short" font-style="italic" text-case="title"/>
       </if>
-      <else>
+      <else-if type="article-journal article-magazine article-newspaper paper-conference chapter entry entry-dictionary entry-encyclopedia legislation bill legal_case" match="any">
         <text variable="title" form="short"/>
+      </else-if>
+      <else>
+        <text variable="title" form="short" text-case="title"/>
       </else>
     </choose>
   </macro>
@@ -279,10 +298,12 @@
   </citation>
 
   <!-- ============================================================ bibliography -->
-  <bibliography hanging-indent="true" entry-spacing="0" subsequent-author-substitute="">
+  <bibliography hanging-indent="true" entry-spacing="0">
     <sort>
       <key macro="author-bib"/>
-      <key macro="year-sort"/>
+      <!-- full date, not just the year: same-author, same-year entries then run in date
+           order, so Zotero's a/b letters follow the calendar (2018a is the earlier letter) -->
+      <key variable="issued"/>
       <key variable="title"/>
     </sort>
     <layout suffix="">
