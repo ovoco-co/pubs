@@ -46,21 +46,27 @@ function Set-NumberingSuffix {
             $lvlBlock = $lm.Value
             $inner    = $lm.Groups[1].Value
             if ($inner -notmatch '<w:lvlText\b') { return $lvlBlock }
-            if ($lvlBlock -match '<w:suff\s+w:val="[^"]*"\s*/>') {
-                return [regex]::Replace($lvlBlock, '<w:suff\s+w:val="[^"]*"\s*/>', $newSuff, 1)
-            }
-            if ($lvlBlock -match '<w:numFmt\s+[^/]*/>') {
-                return [regex]::Replace($lvlBlock, '(<w:numFmt\s+[^/]*/>)', "`$1$newSuff", 1)
-            }
-            if ($lvlBlock -match '<w:start\s+[^/]*/>') {
-                return [regex]::Replace($lvlBlock, '(<w:start\s+[^/]*/>)', "`$1$newSuff", 1)
-            }
-            return [regex]::Replace($lvlBlock, '(<w:lvl\b[^>]*>)', "`$1$newSuff", 1)
+            # CT_Lvl is a SEQUENCE:
+            #   start, numFmt, lvlRestart, pStyle, isLgl, suff, lvlText,
+            #   lvlPicBulletId, legacy, lvlJc, pPr, rPr
+            # so w:suff belongs immediately BEFORE w:lvlText - after pStyle,
+            # not after numFmt. Anchoring the insertion on numFmt or start put
+            # suff ahead of lvlRestart and pStyle and made the file
+            # schema-invalid. Word does not prompt to repair that: it drops the
+            # out-of-order child, and losing <w:pStyle w:val="Heading1"/> is
+            # what stops Heading 1 numbering. It reached every heading-linked
+            # abstractNum in the NWIRP chapters, HMList ilvl 0 included.
+            #
+            # Any existing suff is REMOVED first rather than replaced in place,
+            # so a file already written with it in the wrong position is
+            # repaired by re-running instead of keeping the bad order.
+            $lvlBlock = [regex]::Replace($lvlBlock, '<w:suff\b[^>]*/>', '')
+            return ([regex]'(<w:lvlText\b)').Replace($lvlBlock, ($newSuff + '$1'), 1)
         }.GetNewClosure()
         return [System.Text.RegularExpressions.Regex]::Replace($whole, '(?s)<w:lvl\b[^>]*>(.*?)</w:lvl>', $lvlEval)
     }.GetNewClosure()
     return [System.Text.RegularExpressions.Regex]::Replace(
         $NumberingXml,
-        '(?s)<w:abstractNum [^>]*abstractNumId="(\d+)"[^>]*>.*?</w:abstractNum>',
+        '(?s)<w:abstractNum\b[^>]*\bw:abstractNumId="(\d+)"[^>]*>.*?</w:abstractNum>',
         $abstractNumEvaluator)
 }

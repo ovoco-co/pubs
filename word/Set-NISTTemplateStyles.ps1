@@ -1,18 +1,12 @@
 <#
 .SYNOPSIS
-    Applies the NIST style architecture to a CLEAN document - the template file
-    or a new document built from it - without the legacy-fix passes.
+    Applies the NIST style architecture to the template file or a document
+    built from it.
 
 .DESCRIPTION
-    This is the go-forward styler for the clean-template workflow. It is a thin
-    wrapper over Set-NISTStyleArchitecture.ps1 -Clean, so there is ONE source of
-    truth for the architecture. It applies the canonical style definitions,
-    colors, indents, numbering, ligatures-off, and recommended-style curation,
-    but skips the rescue passes that only matter for messy inherited documents
-    (the Heading 1/3 cs="Times New Roman" strip and the junk-style deletions).
-
-    Use Set-NISTStyleArchitecture.ps1 (without -Clean) for legacy documents that
-    still carry old cruft to clean up.
+    A thin wrapper over Set-NISTStyleArchitecture.ps1, kept so existing calls
+    (Build-NISTReferenceDoc.ps1) keep working. There is ONE source of truth
+    for the architecture: Set-NISTStyleArchitecture.ps1.
 
 .PARAMETER File
     Path to a single Word file. Either this or -Folder is required.
@@ -46,7 +40,7 @@ $ErrorActionPreference = 'Stop'
 $engine = Join-Path $PSScriptRoot 'Set-NISTStyleArchitecture.ps1'
 if (-not (Test-Path -LiteralPath $engine)) { throw "Engine not found: $engine" }
 
-$fwd = @{ Clean = $true }
+$fwd = @{}
 if ($PSCmdlet.ParameterSetName -eq 'File') { $fwd['File'] = $File } else { $fwd['Folder'] = $Folder }
 if ($Force) { $fwd['Force'] = $true }
 

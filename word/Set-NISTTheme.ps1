@@ -25,7 +25,8 @@
     in the folder. Either this or -File is required.
 
 .PARAMETER Force
-    Overwrite the file without prompting and skip the existing-backup check.
+    Overwrite the file without prompting. This script writes in place and
+    makes no backup, so there is no existing-backup check to skip.
 
 .EXAMPLE
     .\Set-NISTTheme.ps1 -File "C:\templates\HM-NWIRP-Template.dotx"
@@ -46,6 +47,22 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Resolve-Sibling {
+    # A dependency normally sits beside this script. When the script has been
+    # copied into a subfolder (for example word\nist\), look up the tree so it
+    # still finds the generic engines and the OoXml module in word\ instead of
+    # failing on $PSScriptRoot alone.
+    param([Parameter(Mandatory=$true)][string]$RelativePath)
+    $dir = $PSScriptRoot
+    for ($i = 0; $i -lt 3 -and $dir; $i++) {
+        $candidate = Join-Path $dir $RelativePath
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+        $dir = Split-Path -Parent $dir
+    }
+    throw "Dependency not found beside this script or in the two folders above it: $RelativePath"
+}
+
 
 # Canonical NIST NCSTAR color scheme
 $nistClrScheme = @'
@@ -81,7 +98,7 @@ NIST NCSTAR theme palette:
   folHlink  #954F72  Followed Hyperlink
 "@ -ForegroundColor Cyan
 
-$genericScript = Join-Path $PSScriptRoot 'Set-ThemeColors.ps1'
+$genericScript = Resolve-Sibling 'Set-ThemeColors.ps1'
 
 $args_ = @{
     ColorSchemeXml = $nistClrScheme

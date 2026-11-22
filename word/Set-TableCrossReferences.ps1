@@ -108,7 +108,17 @@ $styleAlt  = ($CaptionStyle | ForEach-Object { [regex]::Escape($_) }) -join '|'
 $styleRx   = '<w:pStyle\s[^>]*w:val="(?:' + $styleAlt + ')"[^>]*/>'
 
 # "Table" then a space or non-breaking space, chapter, any dash, number.
-$numberRx  = [regex]::Escape($Label) + '[\s ]*(\d+)\s*[-‑–—]\s*(\d+)'
+# The separators are written as regex escapes, not as literal characters:
+# Windows PowerShell 5.1 reads a .ps1 with no BOM as ANSI, so a literal
+# NBSP or en dash in the source is mis-decoded and the script fails to
+# parse at all. \u00A0 NBSP, \u2011 non-breaking hyphen, \u2013 en dash,
+# \u2014 em dash. Keeping this file pure ASCII makes the encoding moot.
+# The separator includes a DOT. Ch05 and Ch06 were authored with
+# "Figure 6.1" in the prose, and the captions now read "Figure 6-1" with an
+# en dash, so without the dot the mention never matched its own caption and
+# 53 cross-references stayed as dead text. Both forms parse to the same
+# chapter/number pair, which is what the lookup key is built from.
+$numberRx  = [regex]::Escape($Label) + '[\s\u00A0]*(\d+)\s*[.\-\u2010\u2011\u2013\u2014]\s*(\d+)'
 $runRx     = '(?s)<w:r(?:\s[^>]*)?>.*?</w:r>'
 $textRx    = '(?s)<w:t(?:\s[^>]*)?>(.*?)</w:t>'
 
@@ -168,6 +178,12 @@ function Test-SpanReplaceable {
     param([string]$Para, [int]$Start, [int]$Length)
 
     $span = $Para.Substring($Start, $Length)
+    # A tracked-change boundary anywhere inside the mention: leave it typed.
+    # Balanced is not enough here - "Figure " in one insertion and "4-10" in
+    # the next balance, but the rewrite would drop both insertions' markers and
+    # turn an author's tracked insertion into untracked text. A mention wholly
+    # inside one insertion has no boundary in its span and is still linked.
+    if ($span -match '<w:(ins|del|moveFrom|moveTo)\b|</w:(ins|del|moveFrom|moveTo)>') { return $false }
     foreach ($tag in @('w:ins', 'w:del', 'w:hyperlink', 'w:smartTag', 'w:sdt', 'w:fldSimple')) {
         $open  = ([regex]::Matches($span, "<$tag(?:\s[^>]*)?>")).Count
         $close = ([regex]::Matches($span, "</$tag>")).Count
@@ -178,6 +194,21 @@ function Test-SpanReplaceable {
     $delOpen  = ([regex]::Matches($before, '<w:del(?:\s[^>]*)?>')).Count
     $delClose = ([regex]::Matches($before, '</w:del>')).Count
     if ($delOpen -gt $delClose) { return $false }
+
+    # A mention already inside a complex field is the CACHED RESULT of a field
+    # written earlier - a REF put there by a previous pass reads "Table 3-1" in
+    # its result runs, and that text is part of the joined run text a mention is
+    # matched against. Wrapping it again would nest a field inside its own
+    # result. Tested per span rather than per paragraph: the Table pass leaves a
+    # REF in a paragraph that may still hold an unlinked Figure mention, and a
+    # paragraph-wide skip abandoned that mention. Balanced counts mean the span
+    # sits wholly outside every field.
+    $fbBefore = ([regex]::Matches($before, 'w:fldCharType="begin"')).Count
+    $feBefore = ([regex]::Matches($before, 'w:fldCharType="end"')).Count
+    if ($fbBefore -gt $feBefore) { return $false }
+    $fbSpan = ([regex]::Matches($span, 'w:fldCharType="begin"')).Count
+    $feSpan = ([regex]::Matches($span, 'w:fldCharType="end"')).Count
+    if ($fbSpan -ne $feSpan) { return $false }
 
     return $true
 }
@@ -199,11 +230,30 @@ if ($PSCmdlet.ParameterSetName -eq 'File') {
     $targets = @((Resolve-Path -LiteralPath $File).ProviderPath)
 } else {
     if (-not (Test-Path -LiteralPath $Folder -PathType Container)) { throw "Folder not found: $Folder" }
+    # Exclude Word's ~$ lock files: they match *.docx and are not documents.
     $targets = @(Get-ChildItem -LiteralPath $Folder -Filter $Filter -File |
+        Where-Object { $_.Name -notlike '~$*' } |
                  Where-Object { $_.Name -notlike '~$*' } |
                  ForEach-Object { $_.FullName })
     if ($targets.Count -eq 0) { throw "No files matching $Filter in $Folder" }
 }
+
+# A ~$ lock file means an author has that chapter open in Word. Writing to it
+# raises an IOException, and with no check that exception aborted the whole run:
+# one locked chapter left the other seven half-processed and inconsistent. SKIP
+# it, say which, and carry on - a file the author is working in is theirs.
+$lockedTargets = @()
+foreach ($t in $targets) {
+    $leaf = Split-Path -Leaf $t
+    $lock = Join-Path (Split-Path -Parent $t) ('~$' + $leaf.Substring(2))
+    if (Test-Path -LiteralPath $lock) { $lockedTargets += $t }
+}
+if ($lockedTargets.Count -gt 0) {
+    foreach ($l in $lockedTargets) { Write-Warning "  OPEN IN WORD, skipped: $(Split-Path -Leaf $l)" }
+    $targets = @($targets | Where-Object { $lockedTargets -notcontains $_ })
+    if ($targets.Count -eq 0) { throw "Every target is open in Word. Nothing done." }
+}
+
 
 Write-Host "Set Table Cross-References" -ForegroundColor Cyan
 Write-Host "  Replaces typed '$Label n-n' mentions with REF fields on the caption." -ForegroundColor Gray
@@ -241,6 +291,38 @@ foreach ($target in $targets) {
     # ---- pass 1: find the captions and give each one a bookmark -----------
     $paras = [regex]::Matches($xml, '(?s)<w:p(?:\s[^>]*)?>.*?</w:p>')
 
+    # A complex field can span MANY paragraphs. A TOC is exactly that: one
+    # fldChar begin, an instrText "TOC \o ...", a separate, then every entry
+    # paragraph Word generated, then one fldChar end at the very bottom. Inside
+    # an entry paragraph there are no unbalanced fldChars of its own, so a
+    # paragraph-local balance test sees nothing wrong and the paragraph looks
+    # editable. It is not: an entry is field RESULT, Word rewrites it on every
+    # F9, and a REF written there is both lost and, until then, a field nested
+    # inside its own result. An earlier run put 20 of 43 REFs inside the TOC
+    # that way (16 as TOC > REF, 4 as TOC > HYPERLINK > REF).
+    #
+    # Depth is therefore carried at DOCUMENT level: count begin/end markers
+    # ahead of each paragraph and skip any paragraph that opens while a field
+    # is still open. This is also the real reason TOC entries were matching as
+    # captions in pass 1 - an entry carries the caption text verbatim - so the
+    # gate is applied to both passes and -NoUnstyledCaptions is no longer the
+    # only thing standing between a ToC and a bookmark.
+    $fieldParas = @{}
+    $markers = [regex]::Matches($xml, 'w:fldCharType="(begin|end)"')
+    $mi = 0
+    $depth = 0
+    for ($i = 0; $i -lt $paras.Count; $i++) {
+        while ($mi -lt $markers.Count -and $markers[$mi].Index -lt $paras[$i].Index) {
+            if ($markers[$mi].Groups[1].Value -eq 'begin') { $depth++ } else { $depth-- }
+            if ($depth -lt 0) { $depth = 0 }
+            $mi++
+        }
+        if ($depth -gt 0) { $fieldParas[$i] = $true }
+    }
+    if ($fieldParas.Count -gt 0) {
+        Write-Host "  Paragraphs inside a multi-paragraph field (TOC etc), skipped: $($fieldParas.Count)" -ForegroundColor Gray
+    }
+
     # Bookmark ids have to be unique across the document.
     $maxId = 0
     foreach ($m in [regex]::Matches($xml, '<w:bookmarkStart\s[^>]*w:id="(\d+)"')) {
@@ -256,6 +338,7 @@ foreach ($target in $targets) {
     $edits = @()         # paragraph rewrites, applied back to front
 
     for ($i = 0; $i -lt $paras.Count; $i++) {
+        if ($fieldParas.ContainsKey($i)) { continue }               # TOC entry
         $para = $paras[$i].Value
         $styled = [regex]::IsMatch($para, $styleRx)
         if (-not $styled -and $NoUnstyledCaptions) { continue }
@@ -331,8 +414,12 @@ foreach ($target in $targets) {
     for ($i = 0; $i -lt $paras.Count; $i++) {
         $para = $paras[$i].Value
         if ($captionParas.ContainsKey($i)) { continue }              # captions
+        if ($fieldParas.ContainsKey($i)) { continue }                # TOC entry
         if ($para -notmatch [regex]::Escape($Label)) { continue }
-        if ($para -match 'w:fldCharType="begin"' -and $para -match 'REF ') { continue }
+        # No paragraph-level skip for an existing REF: Test-SpanReplaceable
+        # rejects a mention that is inside a field, so the other mentions in the
+        # same paragraph are still linked. Skipping the paragraph left a typed
+        # "Figure 3-1" unlinked purely because a Table REF shared the paragraph.
 
         $runs = [regex]::Matches($para, $runRx)
         if ($runs.Count -eq 0) { continue }
@@ -430,7 +517,81 @@ foreach ($target in $targets) {
         [void]$sb.Remove($edit.Index, $edit.Length)
         [void]$sb.Insert($edit.Index, $edit.Text)
     }
-    $entries['word/document.xml'] = $utf8NoBom.GetBytes($sb.ToString())
+    $newXml = $sb.ToString()
+
+    # GUARD. This script splices into PROSE - it replaces a typed mention with a
+    # field - and it had no guard of any kind: no parse, no counts, no refusal
+    # path. Visible text cannot be the invariant here, because the "matched on
+    # the number alone" path deliberately corrects a mention the chapter
+    # renumbering left stale. Structure can be.
+    $probeXml = $newXml
+    if ($probeXml.Length -gt 0 -and $probeXml[0] -eq [char]0xFEFF) { $probeXml = $probeXml.Substring(1) }
+    try {
+        $probe = New-Object System.Xml.XmlDocument
+        $probe.XmlResolver = $null
+        $probe.LoadXml($probeXml)
+    } catch {
+        throw "Cross-reference rewrite produced malformed document.xml for ${target}: $($_.Exception.Message). Nothing written."
+    }
+    # NOT bookmarkStart/bookmarkEnd: bookmarking the captions is this script's
+    # own job, so those legitimately go UP. Equality was the wrong invariant and
+    # refused Ch02 over its own 10 new caption anchors. What must hold is that
+    # they pair and that none is LOST, since a start without its end leaves
+    # every REF aimed there unresolvable.
+    foreach ($tag in @('<a:blip\b', '<w:drawing\b', '<w:pict\b', '<w:p\b', '<w:tbl>',
+                       '<w:ins\b', '<w:del\b', '<w:delText\b', '<w:delInstrText\b',
+                       '<w:commentReference\b', '<w:footnoteReference\b')) {
+        $n = ([regex]::Matches($newXml, $tag)).Count
+        $o = ([regex]::Matches($xml, $tag)).Count
+        if ($n -ne $o) {
+            throw ("Cross-reference rewrite changed a protected element count in ${target}: " +
+                   "$tag $o -> $n. Nothing written.")
+        }
+    }
+    $bsNew = ([regex]::Matches($newXml, '<w:bookmarkStart\b')).Count
+    $beNew = ([regex]::Matches($newXml, '<w:bookmarkEnd\b')).Count
+    $bsOld = ([regex]::Matches($xml,    '<w:bookmarkStart\b')).Count
+    if ($bsNew -ne $beNew) {
+        throw "Cross-reference rewrite left $bsNew bookmark starts against $beNew ends in ${target}. Nothing written."
+    }
+    if ($bsNew -lt $bsOld) {
+        throw "Cross-reference rewrite dropped $($bsOld - $bsNew) bookmark(s) in ${target}. Nothing written."
+    }
+
+    # Every inserted field must be complete. A REF spliced in half renders as an
+    # error in Word and cannot be found by looking at the text.
+    $begins = ([regex]::Matches($newXml, 'w:fldCharType="begin"')).Count
+    $ends   = ([regex]::Matches($newXml, 'w:fldCharType="end"')).Count
+    if ($begins -ne $ends) {
+        throw "Cross-reference rewrite left $begins field begins against $ends ends in ${target}. Nothing written."
+    }
+    # NOT "old + one per edit": an edit is a spliced text RANGE, and most of them
+    # are caption bookmark anchors that add no field at all. Counting them as
+    # fields refused Ch02 over its own 10 anchors. What holds is that fields only
+    # appear, never vanish, and that the new ones are REF fields.
+    $oldBegins = ([regex]::Matches($xml, 'w:fldCharType="begin"')).Count
+    if ($begins -lt $oldBegins) {
+        throw ("Cross-reference rewrite lost $($oldBegins - $begins) field(s) in ${target}. Nothing written.")
+    }
+    $refNew = ([regex]::Matches($newXml, '<w:instrText[^>]*>\s*REF\b')).Count
+    $refOld = ([regex]::Matches($xml,    '<w:instrText[^>]*>\s*REF\b')).Count
+    if (($begins - $oldBegins) -ne ($refNew - $refOld)) {
+        throw ("Cross-reference rewrite added $($begins - $oldBegins) field(s) but " +
+               "$($refNew - $refOld) REF instruction(s) in ${target}. Nothing written.")
+    }
+    if ([regex]::IsMatch($newXml, '/>\s*/>')) {
+        throw "Cross-reference rewrite left stray '/>' markup in ${target}. Nothing written."
+    }
+    # A mention being corrected is the only reason the visible text may move, so
+    # say by how much rather than asserting it did not.
+    $oldText = -join ([regex]::Matches($xml,    '(?s)<w:t(?:\s[^>]*)?>(.*?)</w:t>') | ForEach-Object { $_.Groups[1].Value })
+    $newText = -join ([regex]::Matches($newXml, '(?s)<w:t(?:\s[^>]*)?>(.*?)</w:t>') | ForEach-Object { $_.Groups[1].Value })
+    if ($oldText -cne $newText) {
+        Write-Host ("  Visible text moved by $($newText.Length - $oldText.Length) char(s) " +
+                    "across $($edits.Count) corrected mention(s).") -ForegroundColor DarkGray
+    }
+
+    $entries['word/document.xml'] = $utf8NoBom.GetBytes($newXml)
 
     if (-not $NoBackup) {
         if (-not $Force -and (Test-Path -LiteralPath "$target.xref.bak")) {

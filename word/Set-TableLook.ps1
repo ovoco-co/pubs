@@ -68,6 +68,13 @@
     Write w:tblHeader into the first row so it repeats across page breaks.
     Default $true. Independent of -HeaderRow.
 
+.PARAMETER TableStyle
+    Put every content table on this table style. The page-anchored banner
+    table is left alone - it is page furniture, not content, and its colour
+    bands are its own. Throws if the style is not defined in the document,
+    since a w:tblStyle naming a missing style is a dangling reference and Word
+    falls back to no style at all.
+
 .PARAMETER FixedWidth
     Pin every table to a real width instead of letting Word autofit it.
 
@@ -169,6 +176,8 @@ param(
     [bool]$BandedRows      = $true,
     [bool]$BandedColumns   = $false,
     [bool]$RepeatHeaderRow = $true,
+
+    [string]$TableStyle,
 
     [switch]$FixedWidth,
 
@@ -737,6 +746,50 @@ foreach ($target in $targets) {
         Write-Host ""
         Write-Host "  -ReportWidths: nothing written." -ForegroundColor Yellow
         continue
+    }
+
+    # 0. Put the content tables on a table style.
+    #    "Content tables go on NIST-Data; only the page-anchored banner stays
+    #    where it is." A content table left on TableGrid draws black box rules
+    #    instead of the 808080 themeShade grid, and gets none of the style's
+    #    header row or cell margins.
+    #
+    #    A plain loop, BACK TO FRONT, not a MatchEvaluator. Back to front
+    #    because each splice changes the length, so forwards every later index
+    #    is stale. A plain loop because a count has to escape this block, and
+    #    a counter incremented inside a .GetNewClosure()'d evaluator never
+    #    reaches the caller - the closure gets its own module scope, the work
+    #    happens, and the count reads 0.
+    if ($TableStyle) {
+        if ($stylesXml -and -not [regex]::IsMatch($stylesXml, '<w:style\b[^>]*\bw:styleId="' + [regex]::Escape($TableStyle) + '"')) {
+            throw "Table style '$TableStyle' is not defined in this document. Run Set-NISTStyleArchitecture.ps1 first."
+        }
+        # Identify the banner by PAGE anchoring, not by being floated at all:
+        # authors float content tables with vertAnchor="text" too.
+        $bannerRx = '<w:tblpPr[^>]*w:vertAnchor="page"[^>]*w:horzAnchor="page"|<w:tblpPr[^>]*w:horzAnchor="page"[^>]*w:vertAnchor="page"'
+        $styled = 0; $skippedBanner = 0; $already = 0
+        $tblMatches = @([regex]::Matches($documentXml, '(?s)<w:tbl\b[^>]*>.*?</w:tbl>') |
+                        Sort-Object -Property Index -Descending)
+        foreach ($tm in $tblMatches) {
+            $tbl = $tm.Value
+            if ([regex]::IsMatch($tbl, $bannerRx)) { $skippedBanner++; continue }
+            if ($tbl -match [regex]::Escape($SIDEBAR_STYLE)) { continue }
+            $existing = [regex]::Match($tbl, '<w:tblStyle\b[^>]*\bw:val="([^"]+)"\s*/>')
+            if ($existing.Success -and $existing.Groups[1].Value -eq $TableStyle) { $already++; continue }
+            $newTbl = $tbl
+            if ($existing.Success) {
+                $newTbl = $newTbl.Remove($existing.Index, $existing.Length).Insert($existing.Index, '<w:tblStyle w:val="' + $TableStyle + '"/>')
+            } else {
+                # CT_TblPrBase is a sequence and tblStyle is its FIRST child.
+                $pr = [regex]::Match($newTbl, '<w:tblPr\b[^>]*>')
+                if (-not $pr.Success) { continue }
+                $newTbl = $newTbl.Insert($pr.Index + $pr.Length, '<w:tblStyle w:val="' + $TableStyle + '"/>')
+            }
+            $documentXml = $documentXml.Remove($tm.Index, $tm.Length).Insert($tm.Index, $newTbl)
+            $styled++
+        }
+        Write-Host ("  Table style -> {0}: {1} set, {2} already on it, {3} page-anchored banner(s) left alone" -f `
+            $TableStyle, $styled, $already, $skippedBanner) -ForegroundColor DarkGray
     }
 
     # 1. Normalize every existing <w:tblLook ...> tag.

@@ -377,7 +377,7 @@ foreach ($target in $targets) {
 
     $probe = New-Object System.Xml.XmlDocument
     $probe.PreserveWhitespace = $true
-    try { $probe.LoadXml($newDoc) }
+    try { $probeXml = $newDoc; if ($probeXml.Length -gt 0 -and $probeXml[0] -eq [char]0xFEFF) { $probeXml = $probeXml.Substring(1) }; $probe.LoadXml($probeXml) }
     catch { throw "Rewrite produced malformed XML for ${target}: $($_.Exception.Message)" }
 
     if (-not $Force -and (Test-Path -LiteralPath "$target.banners.bak")) {

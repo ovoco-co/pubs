@@ -82,7 +82,7 @@ function Get-PackagedXml {
         $reader.Dispose()
     } finally { $stream.Dispose() }
     $xml = New-Object System.Xml.XmlDocument
-    $xml.LoadXml($text)
+    $probeXml = $text; if ($probeXml.Length -gt 0 -and $probeXml[0] -eq [char]0xFEFF) { $probeXml = $probeXml.Substring(1) }; $xml.LoadXml($probeXml)
     return $xml
 }
 
