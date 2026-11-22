@@ -14,7 +14,7 @@ listed below, nothing in the pipeline invokes it.
 
 ## Start here
 
-Three scripts are entry points. Everything else is either called by one of them or is a
+Four scripts are entry points. Everything else is either called by one of them or is a
 standalone inspection tool.
 
 | Entry point | Use it when |
@@ -22,6 +22,7 @@ standalone inspection tool.
 | `Convert-ToNISTWord.ps1` | Source (HTML, LaTeX, Markdown, or a foreign .docx) has to become a NIST document |
 | `Build-NISTDocuments.ps1` | A .docx already exists and needs the NIST template applied |
 | `ncstar/Build-NISTReport.ps1` | Finished chapters have to be assembled into one deliverable |
+| `restore_zotero_fields.py` | An author still uses Zotero and the templated chapters have lost their citation links. See `zotero-restore.md` |
 
 ## Convert-ToNISTWord
 
