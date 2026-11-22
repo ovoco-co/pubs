@@ -13,12 +13,14 @@ def main(doc_path):
     wdLineSpaceSingle = 0
     wdAutoFitContent = 1
 
-    word = win32.Dispatch("Word.Application")
-    word.Visible = False
-    word.DisplayAlerts = 0
-
+    # Dispatch and both settings belong INSIDE the try. Outside it, a throw
+    # leaks a headless WINWORD.EXE that keeps every file it opened locked.
+    word = None
     doc = None
     try:
+        word = win32.Dispatch("Word.Application")
+        word.Visible = False
+        word.DisplayAlerts = 0
         doc = word.Documents.Open(str(doc_path))
 
         style_name = "TableText"
@@ -58,10 +60,16 @@ def main(doc_path):
             tbl.Range.Style = style_name
 
         doc.Save()
-        doc.Close()
 
     finally:
-        word.Quit()
+        # Close in the finally, not the try: an exception between Open and
+        # Close would otherwise leave the document open inside Word.
+        if doc is not None:
+            try: doc.Close(False)
+            except Exception: pass
+        if word is not None:
+            try: word.Quit()
+            except Exception: pass
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:

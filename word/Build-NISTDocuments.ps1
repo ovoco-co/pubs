@@ -32,28 +32,17 @@
 .PARAMETER Folder
     Path to the folder of Word files to process.
 
-.PARAMETER Clean
-    Pass -Clean to the style step (Set-NISTStyleArchitecture), applying the
-    architecture without the legacy-fix passes. Use for clean template-based
-    documents; omit for messy legacy documents that need the full cleanup.
-
 .PARAMETER Force
     Skip the confirmation prompt.
 
 .EXAMPLE
     .\Build-NISTDocuments.ps1 -Folder "C:\Users\Artist\Documents\260806"
-
-.EXAMPLE
-    # Clean template-based documents (skip legacy fixes in the style step)
-    .\Build-NISTDocuments.ps1 -Folder "C:\...\Templates" -Clean -Force
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)]
     [string]$Folder,
-
-    [switch]$Clean,
 
     [switch]$Force,
 
@@ -62,6 +51,22 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Resolve-Sibling {
+    # A dependency normally sits beside this script. When the script has been
+    # copied into a subfolder (for example word\nist\), look up the tree so it
+    # still finds the generic engines and the OoXml module in word\ instead of
+    # failing on $PSScriptRoot alone.
+    param([Parameter(Mandatory=$true)][string]$RelativePath)
+    $dir = $PSScriptRoot
+    for ($i = 0; $i -lt 3 -and $dir; $i++) {
+        $candidate = Join-Path $dir $RelativePath
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+        $dir = Split-Path -Parent $dir
+    }
+    throw "Dependency not found beside this script or in the two folders above it: $RelativePath"
+}
+
+
 if (-not (Test-Path -LiteralPath $Folder -PathType Container)) { throw "Folder not found: $Folder" }
 $Folder = (Resolve-Path -LiteralPath $Folder).ProviderPath
 
@@ -69,7 +74,7 @@ $Folder = (Resolve-Path -LiteralPath $Folder).ProviderPath
 # called with -Folder <folder> -Force in addition to Args.
 $steps = @(
     @{ Name = 'Theme';          Script = 'Set-NISTTheme.ps1';             Args = @{} }
-    @{ Name = 'Styles';         Script = 'Set-NISTStyleArchitecture.ps1'; Args = @{ Clean = [bool]$Clean } }
+    @{ Name = 'Styles';         Script = 'Set-NISTStyleArchitecture.ps1'; Args = @{} }
     @{ Name = 'Page layout';    Script = 'Set-PageLayout.ps1';            Args = @{} }
     @{ Name = 'Table look';     Script = 'Set-TableLook.ps1';             Args = @{} }
     @{ Name = '3-column widths'; Script = 'Set-NISTThreeColumnTableWidths.ps1'; Args = @{} }
@@ -79,14 +84,30 @@ $steps = @(
 
 # Verify every step script exists before starting.
 foreach ($s in $steps) {
-    $p = Join-Path $PSScriptRoot $s.Script
-    if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "Pipeline script not found: $p" }
+    $null = Resolve-Sibling $s.Script
 }
 
 Write-Host "NIST document pipeline" -ForegroundColor Cyan
 Write-Host "  Folder: $Folder" -ForegroundColor Cyan
-Write-Host "  Style step: $(if ($Clean) { 'Clean (no legacy fixes)' } else { 'Full (legacy fixes on)' })" -ForegroundColor Cyan
-Write-Host "  Backups:    $(if ($NoBackup) { 'off (-NoBackup)' } else { 'on (.bak beside each file)' })" -ForegroundColor Cyan
+# Only some steps copy a .bak, and the ones that do are exactly the ones that
+# declare -NoBackup. Theme, Styles, Page layout and Table look write in place
+# with no copy at all, so a missing .bak beside a file does NOT mean a step was
+# skipped. Derive the list rather than hardcode it, so this stays true if a
+# script gains or loses the behavior.
+$backsUp = @()
+foreach ($s in $steps) {
+    if ((Get-Command (Resolve-Sibling $s.Script)).Parameters.ContainsKey('NoBackup')) {
+        $backsUp += $s.Name
+    }
+}
+$inPlace = @($steps | Where-Object { $backsUp -notcontains $_.Name } | ForEach-Object { $_.Name })
+if ($NoBackup) {
+    Write-Host "  Backups:    off (-NoBackup) - every step writes in place" -ForegroundColor Cyan
+} else {
+    Write-Host ("  Backups:    {0} of {1} steps copy a .bak: {2}" -f $backsUp.Count, $steps.Count, ($backsUp -join ', ')) -ForegroundColor Cyan
+    Write-Host ("              writes in place, no backup: {0}" -f ($inPlace -join ', ')) -ForegroundColor Cyan
+    Write-Host "              Pass -NoBackup for none at all." -ForegroundColor Cyan
+}
 Write-Host "  Steps in order:" -ForegroundColor Cyan
 $i = 1
 foreach ($s in $steps) { Write-Host ("    {0}. {1}  ({2})" -f $i, $s.Name, $s.Script); $i++ }
@@ -102,7 +123,7 @@ foreach ($s in $steps) {
     $stepNum++
     Write-Host ""
     Write-Host ("===== Step {0}/{1}: {2} =====" -f $stepNum, $steps.Count, $s.Name) -ForegroundColor Green
-    $scriptPath = Join-Path $PSScriptRoot $s.Script
+    $scriptPath = Resolve-Sibling $s.Script
     $callArgs = @{ Folder = $Folder; Force = $true } + $s.Args
     # Only some steps write a .bak, and passing -NoBackup to one that does not
     # would fail the whole run, so ask the script whether it takes the switch.

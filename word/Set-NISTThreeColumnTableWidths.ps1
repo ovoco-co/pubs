@@ -277,7 +277,7 @@ foreach ($target in $targets) {
 
     $doc = New-Object System.Xml.XmlDocument
     $doc.PreserveWhitespace = $true
-    $doc.LoadXml($srcXmlRaw)
+    $probeXml = $srcXmlRaw; if ($probeXml.Length -gt 0 -and $probeXml[0] -eq [char]0xFEFF) { $probeXml = $probeXml.Substring(1) }; $doc.LoadXml($probeXml)
     $ns = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)
     $ns.AddNamespace('w', $W)
 

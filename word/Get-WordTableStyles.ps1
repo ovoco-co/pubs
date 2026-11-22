@@ -274,7 +274,7 @@ try {
 } finally { $stream.Dispose() }
 
 $xml = New-Object System.Xml.XmlDocument
-$xml.LoadXml($stylesXmlText)
+$probeXml = $stylesXmlText; if ($probeXml.Length -gt 0 -and $probeXml[0] -eq [char]0xFEFF) { $probeXml = $probeXml.Substring(1) }; $xml.LoadXml($probeXml)
 $nsm = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
 $nsm.AddNamespace('w', $wNs)
 

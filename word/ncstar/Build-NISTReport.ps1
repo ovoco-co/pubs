@@ -903,8 +903,9 @@ if ($Pdf) {
     } finally {
         if ($doc)  { try { $doc.Close([ref]$false) } catch {} }
         if ($word) { try { $word.Quit() } catch {} }
-        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($doc)  | Out-Null
-        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($word) | Out-Null
+        # ReleaseComObject throws on $null, which would skip the GC calls below.
+        if ($doc)  { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($doc)  | Out-Null }
+        if ($word) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) | Out-Null }
         [System.GC]::Collect()
         [System.GC]::WaitForPendingFinalizers()
     }

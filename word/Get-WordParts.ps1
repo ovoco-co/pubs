@@ -117,7 +117,7 @@ try {
 if (-not $glossaryXmlText) { return }
 
 $xml = New-Object System.Xml.XmlDocument
-$xml.LoadXml($glossaryXmlText)
+$probeXml = $glossaryXmlText; if ($probeXml.Length -gt 0 -and $probeXml[0] -eq [char]0xFEFF) { $probeXml = $probeXml.Substring(1) }; $xml.LoadXml($probeXml)
 $nsm = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
 $nsm.AddNamespace('w', $wNs)
 

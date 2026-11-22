@@ -126,11 +126,28 @@ if ($PSCmdlet.ParameterSetName -eq 'File') {
     if (-not (Test-Path -LiteralPath $Folder -PathType Container)) { throw "Folder not found: $Folder" }
     $folderResolved = (Resolve-Path -LiteralPath $Folder).ProviderPath
     $targets = [System.IO.DirectoryInfo]::new($folderResolved).GetFiles() |
-        Where-Object { $_.Extension -match '^\.(docx|dotx|docm|dotm)$' } |
+        Where-Object { $_.Extension -match '^\.(docx|dotx|docm|dotm)$' -and $_.Name -notlike '~$*' } |
         Sort-Object Name |
         ForEach-Object { $_.FullName }
 }
 if ($targets.Count -eq 0) { throw "No supported Word files found." }
+
+# A ~$ lock file means an author has that chapter open in Word. Writing to it
+# raises an IOException, and with no check that exception aborted the whole run:
+# one locked chapter left the other seven half-processed and inconsistent. SKIP
+# it, say which, and carry on - a file the author is working in is theirs.
+$lockedTargets = @()
+foreach ($t in $targets) {
+    $leaf = Split-Path -Leaf $t
+    $lock = Join-Path (Split-Path -Parent $t) ('~$' + $leaf.Substring(2))
+    if (Test-Path -LiteralPath $lock) { $lockedTargets += $t }
+}
+if ($lockedTargets.Count -gt 0) {
+    foreach ($l in $lockedTargets) { Write-Warning "  OPEN IN WORD, skipped: $(Split-Path -Leaf $l)" }
+    $targets = @($targets | Where-Object { $lockedTargets -notcontains $_ })
+    if ($targets.Count -eq 0) { throw "Every target is open in Word. Nothing done." }
+}
+
 
 $keepSet = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 foreach ($k in $KeepStyles) { [void]$keepSet.Add($k) }

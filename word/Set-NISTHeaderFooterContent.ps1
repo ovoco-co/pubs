@@ -28,7 +28,8 @@
     Removes ALL existing header*.xml / footer*.xml parts and replaces them
     with six fresh ones (nistHeaderFirst/Even/Default, nistFooterFirst/
     Even/Default). Wires references into every sectPr, adds <w:titlePg/>,
-    enables <w:evenAndOddHeaders/> and <w:mirrorMargins/> in settings.xml.
+    enables <w:evenAndOddHeaders/> in settings.xml and strips the obsolete
+    <w:mirrorMargins/> if an earlier run put it there.
 
     Idempotent: re-running replaces the same nist* parts.
 
@@ -367,7 +368,7 @@ foreach ($target in $targets) {
         "<w:sectPr`$1>$sectPrInjectStart<w:titlePg/></w:sectPr>"
     )
 
-    # 7. Update settings.xml (add evenAndOddHeaders + mirrorMargins; idempotent)
+    # 7. Update settings.xml (add evenAndOddHeaders, strip mirrorMargins; idempotent)
     if ($settingsXml) {
         if ($settingsXml -notmatch '<w:evenAndOddHeaders\s*/>') {
             $settingsXml = [regex]::Replace(
@@ -377,13 +378,17 @@ foreach ($target in $targets) {
                 1
             )
         }
-        if ($settingsXml -notmatch '<w:mirrorMargins\s*/>') {
-            $settingsXml = [regex]::Replace(
-                $settingsXml,
-                '(<w:settings\b[^>]*>)',
-                '$1<w:mirrorMargins/>',
-                1
-            )
+        # Mirror margins are OBSOLETE. The spec was 1.25 inner / 0.75 outer;
+        # it is now 1 inch on all four sides, which is Set-PageLayout.ps1's
+        # default. With equal margins the setting changes no pixel, but it
+        # leaves Word's Page Setup reading "Mirror margins", which contradicts
+        # the layout the document actually has. Strip it, so re-running also
+        # repairs a file an earlier version of this script wrote it into.
+        # Odd and even headers come from evenAndOddHeaders above; they have
+        # never depended on this.
+        if ($settingsXml -match '<w:mirrorMargins\s*/>') {
+            $settingsXml = [regex]::Replace($settingsXml, '<w:mirrorMargins\s*/>', '')
+            Write-Host "  settings.xml: removed obsolete mirrorMargins" -ForegroundColor DarkGray
         }
     }
 
@@ -455,10 +460,13 @@ try {
 
 Write-Host ""
 Write-Host "Recalculating header/footer fields in Word..." -ForegroundColor Cyan
-$word.Visible = $false
-$word.DisplayAlerts = 0
 $updatedFiles = 0
 try {
+    # Visible/DisplayAlerts must be set INSIDE the try. Set before it, a throw
+    # here leaks a headless WINWORD.EXE that holds every file it opened locked
+    # until the machine is rebooted.
+    $word.Visible = $false
+    $word.DisplayAlerts = 0
     foreach ($target in $targets) {
         $doc = $null
         try {
@@ -492,12 +500,17 @@ try {
         } catch {
             Write-Warning "  $(Split-Path -Leaf $target): field update failed - $($_.Exception.Message)"
         } finally {
-            if ($doc) { $doc.Close($false) | Out-Null }
+            if ($doc) {
+                try { $doc.Close($false) | Out-Null } catch {}
+                [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($doc)
+            }
         }
     }
 } finally {
-    $word.Quit()
-    [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($word)
+    # Quit can throw (a modal dialog, a doc still open). Unguarded, the throw
+    # skips ReleaseComObject and the process survives holding its file locks.
+    try { $word.Quit() } catch {}
+    if ($word) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) }
     [GC]::Collect()
     [GC]::WaitForPendingFinalizers()
 }
