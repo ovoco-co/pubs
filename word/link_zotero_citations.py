@@ -72,9 +72,12 @@ def fetch_items(library, keys):
     keys = sorted(set(keys))
     for i in range(0, len(keys), 50):
         chunk = ",".join(keys[i:i + 50])
-        for item in json.loads(api(f"{library}/items?itemKey={chunk}&format=csljson")):
-            csl[item["id"].rsplit("/", 1)[1]] = item
-        for item in json.loads(api(f"{library}/items?itemKey={chunk}&format=json&include=bib&style=apa")):
+        # include=csljson keeps the item key beside its CSL data: format=csljson alone
+        # identifies an item by its URI, or by its Citation Key when it has one
+        for item in json.loads(api(f"{library}/items?itemKey={chunk}&format=json&include=csljson,bib&style=apa")):
+            c = item["csljson"]
+            c = json.loads(c) if isinstance(c, str) else c      # the local API returns it as a JSON string
+            csl[item["key"]] = c[0] if isinstance(c, list) else c
             text = re.sub(r"<[^>]+>", "", item.get("bib", ""))
             bib[item["key"]] = html.unescape(re.sub(r"\s+", " ", text)).strip()
     missing = [k for k in keys if k not in csl]
