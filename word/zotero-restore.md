@@ -89,3 +89,45 @@ Originals `HM-261122`, masters `HM-261119`:
 
 Chapters 0 and 4 never used Zotero. Chapter 5 had preferences but no citations; its
 preferences were copied.
+
+## Linking chapters that never used Zotero
+
+`link_zotero_citations.py` handles the other case: citations and a reference list typed by
+hand, or sources that sit in footnotes. Every change is a tracked revision under `--author`,
+so the editor or author can review it and reject it.
+
+1. **Get every source into the library.** Search the group library through Zotero's local API
+   (Zotero > Settings > Advanced > *Allow other applications on this computer to communicate
+   with Zotero*). Add the missing items, tagged so they can be reviewed as a set. The
+   connector's `/connector/saveItems` endpoint creates them in the selected library.
+2. **Write a map** from the citation text to the item key:
+   - `cites`: parenthetical citations, e.g. `"FCC 2017-2018"`.
+   - `narrative`: `"Cordova et al.|2021"`.
+   - `replace`: one-off spans, such as a bare URL or a statute citation.
+   - `edits`: plain-text edits that a replacement depends on.
+   - `footnotes`: footnotes that are nothing but a source.
+   - `bibliography`: replace the list, or append a new one.
+
+   The script's docstring gives the format.
+3. **Dry run, then `--write`.** Citations the map doesn't cover are listed as "left as typed".
+   Settle them in the map, or flag them with a comment for the author.
+4. **Refresh in Word.** The citation text the script inserts is provisional. Refresh rewrites
+   it in the document's style.
+
+The NWIRP 2-1 maps (Ch4 and the Preface) and the list of items added for them are in
+`HM-261122`.
+
+## House citation style
+
+`zotero/nist-author-date.csl` is the house style:
+- **In the text:** Chicago author-date with no comma, e.g. (FCC 2020), (Maitland and Peha 2018),
+  (Cordova et al. 2021), (FEMA 2018a, 2018b).
+- **Reference list:** NIST Technical Series format, e.g. "Taylor BN (2011) Title. *Journal*
+  116(6):797. https://doi.org/..."
+
+To install it, open Zotero > Settings > Cite > Styles and click "+", or POST the file to
+`/connector/installStyle`. To switch a chapter, open Zotero > Document Preferences in Word.
+
+**Organization authors.** The style prints the author field as entered, so cite organizations
+by their short form. Put the short form in the author field (FEMA) and the full name in
+Publisher.
