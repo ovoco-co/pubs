@@ -164,8 +164,16 @@
           <text macro="title"/>
           <group>
             <text variable="container-title" font-style="italic"/>
-            <text variable="volume" prefix=" "/>
-            <text variable="issue" prefix="(" suffix=")"/>
+            <choose>
+              <if variable="volume">
+                <text variable="volume" prefix=" "/>
+                <text variable="issue" prefix="(" suffix=")"/>
+              </if>
+              <else>
+                <!-- no volume: keep the issue off the journal name ("Social Research Update (35)") -->
+                <text variable="issue" prefix=" (" suffix=")"/>
+              </else>
+            </choose>
             <text variable="page" prefix=":"/>
           </group>
         </group>
