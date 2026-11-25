@@ -1,10 +1,12 @@
 Attribute VB_Name = "ListStyles"
 ' Lines up the list styles of the active document: List Bullet, List Number,
-' List Continue, and List, levels 1-5. The bullet or number steps STEP_IN per
-' level, the text sits GAP_IN to its right, and List Continue and List start at
-' the text column. Change the two constants to change the layout.
+' List Continue, and List, levels 1-5. Level 1's bullet or number sits at the
+' left margin plus FIRST_IN, each level below steps STEP_IN further in, the text
+' sits GAP_IN to the right of the marker, and List Continue and List start at
+' the text column. Change the constants to change the layout.
 Option Explicit
 
+Private Const FIRST_IN As Single = 0
 Private Const STEP_IN As Single = 0.2
 Private Const GAP_IN As Single = 0.15
 
@@ -37,11 +39,11 @@ Private Function StyleName(baseName As String, lvl As Integer) As String
 End Function
 
 Private Function MarkerPos(lvl As Integer) As Single
-    MarkerPos = InchesToPoints(STEP_IN * lvl)
+    MarkerPos = InchesToPoints(FIRST_IN + STEP_IN * (lvl - 1))
 End Function
 
 Private Function TextPos(lvl As Integer) As Single
-    TextPos = InchesToPoints(STEP_IN * lvl + GAP_IN)
+    TextPos = InchesToPoints(FIRST_IN + STEP_IN * (lvl - 1) + GAP_IN)
 End Function
 
 Private Function GetStyle(doc As Document, nm As String) As Style
